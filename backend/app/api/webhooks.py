@@ -29,10 +29,11 @@ def telegram_webhook(channel_id: int):
         abort(404)
 
     # Verify the secret token Telegram echoes back (spec §5.1 CH-5).
+    # Fail closed: a channel with no configured secret rejects all webhooks.
     secret = channel.get_credentials().get("webhook_secret")
     got = request.headers.get("X-Telegram-Bot-Api-Secret-Token")
-    if secret and got != secret:
-        log.warning("Telegram webhook secret mismatch for channel %s", channel_id)
+    if not secret or got != secret:
+        log.warning("Telegram webhook rejected (missing/mismatched secret) for channel %s", channel_id)
         abort(403)
 
     payload = request.get_json(silent=True) or {}
