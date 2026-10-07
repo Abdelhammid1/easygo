@@ -1,0 +1,79 @@
+name: easygo
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-easygo}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-easygo}
+      POSTGRES_DB: ${POSTGRES_DB:-easygo}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-easygo}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  web:
+    build: ./backend
+    restart: unless-stopped
+    command: >
+      gunicorn --worker-class gthread --workers 1 --threads 8
+      --bind 0.0.0.0:8000 --access-logfile - wsgi:app
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-easygo}:${POSTGRES_PASSWORD:-easygo}@db:5432/${POSTGRES_DB:-easygo}
+      REDIS_URL: redis://redis:6379/0
+    volumes:
+      - media:/data/media
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # Separates reception from processing (spec §4.1): the web app enqueues,
+  # the worker processes incoming messages and AI requests.
+  worker:
+    build: ./backend
+    restart: unless-stopped
+    command: ["python", "worker.py"]
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-easygo}:${POSTGRES_PASSWORD:-easygo}@db:5432/${POSTGRES_DB:-easygo}
+      REDIS_URL: redis://redis:6379/0
+    volumes:
+      - media:/data/media
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # Builds the React SPA and serves it, proxying /api and /socket.io to web.
+  frontend:
+    build: ./frontend
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    depends_on:
+      - web
+
+volumes:
+  pgdata:
+  redisdata:
+  media:

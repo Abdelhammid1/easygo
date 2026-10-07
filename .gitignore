@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Env & secrets
+.env
+*.local
+
+# Data / media / db
+/data/
+media/
+*.sqlite3
+
+# Node (frontend, later)
+node_modules/
+dist/
+.vite/
+
+# Editor / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Migrations cache (keep versions/, ignore nothing else specific)
