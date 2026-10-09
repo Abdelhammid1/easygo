@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import type { Attachment, AssignableUser, Conversation, Copilot, Message } from "../api/types";
 import { IconAttach, IconBack, IconCanned, IconImage, IconPlay, IconSend } from "../icons";
 
@@ -64,11 +64,6 @@ export function ChatThread({
   const endRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => { endRef.current?.scrollIntoView({ block: "end" }); }, [messages]);
-
-  const lastAiId = useMemo(() => {
-    for (let i = messages.length - 1; i >= 0; i--) if (messages[i].sender_type === "ai") return messages[i].id;
-    return null;
-  }, [messages]);
 
   const windowOpen = conversation.reply_window_open;
   const aiActive = conversation.ai_mode === "active";
@@ -142,7 +137,7 @@ export function ChatThread({
           }
           const out = m.direction === "outbound";
           const kind = m.sender_type;
-          const showAiFoot = kind === "ai" && m.id === lastAiId && copilot;
+          const showAiFoot = kind === "ai" && m.ai_confidence != null;
           return (
             <div key={m.id} className={"msg " + (out ? "out " + kind : "in")}>
               {out && (kind === "ai" || kind === "agent") && (
@@ -152,14 +147,12 @@ export function ChatThread({
                 {m.attachments.map((a) => <div key={a.id} style={{ marginBottom: m.body ? 6 : 0 }}><Media a={a} /></div>)}
                 {m.body}
               </div>
-              {showAiFoot && copilot && (
+              {showAiFoot && (
                 <div className="ai-foot">
-                  {copilot.confidence != null && (
-                    <span className={"conf" + (copilot.confidence < 0.6 ? " low" : "")}>
-                      ● الثقة {Math.round(copilot.confidence * 100)}%
-                    </span>
-                  )}
-                  {copilot.sources.map((srcName) => <span key={srcName} className="src-chip">{srcName}</span>)}
+                  <span className={"conf" + ((m.ai_confidence ?? 0) < 0.6 ? " low" : "")}>
+                    ● الثقة {Math.round((m.ai_confidence ?? 0) * 100)}%
+                  </span>
+                  {(m.ai_sources ?? []).map((srcName) => <span key={srcName} className="src-chip">{srcName}</span>)}
                 </div>
               )}
               <div className="m-meta">

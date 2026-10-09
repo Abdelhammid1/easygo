@@ -8,7 +8,7 @@ from flask_login import login_required
 
 from app.channels.registry import get_adapter
 from app.extensions import db
-from app.models.ai import AISettings
+from app.models.ai import AISettings, PromptVersion
 from app.models.core import Channel
 from app.models.enums import ChannelStatus, ChannelType, NotificationType
 from app.security.permissions import Permission, require_permission
@@ -106,6 +106,73 @@ def update_ai_settings():
                         "ai_enabled": s.ai_enabled})
     db.session.commit()
     return jsonify(settings=_ai_json(s))
+
+
+# ============================= Prompts =============================
+
+def _prompt_json(p: PromptVersion, active_id: int | None) -> dict:
+    return {
+        "id": p.id,
+        "version": p.version,
+        "tone": p.tone,
+        "notes": p.notes,
+        "system_prompt": p.system_prompt,
+        "is_active": p.id == active_id,
+        "created_at": p.created_at.isoformat() if p.created_at else None,
+    }
+
+
+@bp.get("/prompts")
+@login_required
+@require_permission(Permission.AI_SETTINGS)
+def list_prompts():
+    s = db.session.get(AISettings, 1)
+    active_id = s.active_prompt_version_id if s else None
+    rows = db.session.scalars(
+        db.select(PromptVersion).order_by(PromptVersion.version.desc())
+    ).all()
+    return jsonify(active_id=active_id, prompts=[_prompt_json(p, active_id) for p in rows])
+
+
+@bp.post("/prompts")
+@login_required
+@require_permission(Permission.AI_SETTINGS)
+def create_prompt():
+    data = request.get_json(silent=True) or {}
+    body = (data.get("system_prompt") or "").strip()
+    if not body:
+        return jsonify(error="system_prompt_required"), 400
+    top = db.session.scalar(db.select(db.func.max(PromptVersion.version))) or 0
+    pv = PromptVersion(
+        version=top + 1, system_prompt=body,
+        tone=(data.get("tone") or None), notes=(data.get("notes") or None),
+    )
+    db.session.add(pv)
+    db.session.flush()
+    if data.get("activate"):
+        s = db.session.get(AISettings, 1)
+        if s:
+            s.active_prompt_version_id = pv.id
+    audit.record("ai_prompt.create", entity_type="prompt_version", entity_id=pv.id)
+    db.session.commit()
+    s = db.session.get(AISettings, 1)
+    return jsonify(prompt=_prompt_json(pv, s.active_prompt_version_id if s else None)), 201
+
+
+@bp.post("/prompts/<int:prompt_id>/activate")
+@login_required
+@require_permission(Permission.AI_SETTINGS)
+def activate_prompt(prompt_id: int):
+    pv = db.session.get(PromptVersion, prompt_id)
+    if pv is None:
+        return jsonify(error="not_found"), 404
+    s = db.session.get(AISettings, 1)
+    if s is None:
+        return jsonify(error="ai_settings_not_initialised"), 404
+    s.active_prompt_version_id = pv.id
+    audit.record("ai_prompt.activate", entity_type="prompt_version", entity_id=pv.id)
+    db.session.commit()
+    return jsonify(ok=True, active_id=pv.id)
 
 
 # ============================== Channels ==============================

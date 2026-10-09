@@ -66,7 +66,10 @@ export function Inbox() {
     const onConvUpdate = (p: ConversationPatch) => upsert(p);
     const onMessage = (e: MessageEvent) => {
       if (e.conversation_id === selectedRef.current) {
-        addMessage({ ...e, sender_user_id: null, send_status: null, attachments: [] });
+        addMessage({
+          ...e, sender_user_id: null, send_status: null, attachments: [],
+          ai_confidence: e.ai_confidence ?? null, ai_sources: e.ai_sources ?? [],
+        });
         if (e.sender_type === "ai") loadCopilot(e.conversation_id);
       }
       if (e.body) upsert({ id: e.conversation_id, last_message_preview: e.body });

@@ -79,13 +79,14 @@ def _get_or_create_conversation(channel: Channel, contact: Contact) -> Conversat
         .filter_by(channel_id=channel.id, contact_id=contact.id)
         .order_by(Conversation.created_at.desc())
     )
-    if conv is None:
+    if conv is None or conv.state == ConversationState.RESOLVED:
+        # Start a fresh conversation for a brand-new contact, and also when the
+        # last one was resolved — a new message is a new order/topic, so context
+        # and the escalation counter start clean (ticket). The old resolved
+        # conversation stays in history; the contact ties them together.
         conv = Conversation(channel_id=channel.id, contact_id=contact.id)
         db.session.add(conv)
         db.session.flush()
-    elif conv.state == ConversationState.RESOLVED:
-        # Reopen on a new customer message (spec §8 / IN-13).
-        conv.state = ConversationState.OPEN
     return conv
 
 

@@ -10,6 +10,7 @@ const STATE_LABEL: Record<ConversationState, string> = {
 
 const FILTERS: { key: string; label: string }[] = [
   { key: "", label: "الكل" },
+  { key: "order", label: "أوردرات مؤكدة" },
   { key: "needs_human", label: "تحتاج موظفًا" },
   { key: "open", label: "مفتوحة" },
   { key: "resolved", label: "محلولة" },
@@ -40,7 +41,11 @@ interface Props {
 export function ConversationList({ conversations, selectedId, filter, search, onSearch, onFilter, onSelect }: Props) {
   const q = search.trim();
   const shown = conversations.filter((c) => {
-    if (filter && c.state !== filter) return false;
+    if (filter === "order") {
+      if (!c.order_confirmed) return false;
+    } else if (filter && c.state !== filter) {
+      return false;
+    }
     if (q && !(c.contact?.name ?? "").includes(q) && !(c.last_message_preview ?? "").includes(q)) return false;
     return true;
   });
@@ -85,6 +90,7 @@ export function ConversationList({ conversations, selectedId, filter, search, on
               <div className="csnip">{c.last_message_preview ?? ""}</div>
               <div className="cmeta">
                 <span className={"tag " + c.state}>{STATE_LABEL[c.state]}</span>
+                {c.order_confirmed && <span className="order-pill">🧾 أوردر</span>}
                 {c.ai_mode === "active" && c.state !== "resolved" && (
                   <span className="ai-pill"><span className="pdot" />يرد آليًا</span>
                 )}

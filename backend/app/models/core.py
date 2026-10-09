@@ -151,8 +151,14 @@ class Conversation(TimestampMixin, db.Model):
     # Meta 24h reply window: when sending becomes restricted (spec §5.1).
     reply_window_expires_at = db.Column(db.DateTime(timezone=True), nullable=True)
 
+    # Order flow: set True when the AI confirms an order (AI stays active, no escalation).
+    order_confirmed = db.Column(db.Boolean, nullable=False, default=False)
+    # Escalation counter counts AI replies created after this point (reset on agent
+    # reply or order confirmation).
+    ai_turn_reset_at = db.Column(db.DateTime(timezone=True), nullable=True)
+
     channel = db.relationship("Channel", back_populates="conversations")
-    contact = db.relationship("Contact", back_populates="conversations")
+    contact: Mapped["Contact"] = relationship("Contact", back_populates="conversations")
     assignee = db.relationship("User")
     messages = db.relationship(
         "Message", back_populates="conversation",
@@ -196,6 +202,10 @@ class Message(TimestampMixin, db.Model):
     send_status = db.Column(_enum(SendStatus), nullable=True)  # outbound only
     error_reason = db.Column(db.Text, nullable=True)
     is_deleted = db.Column(db.Boolean, nullable=False, default=False)
+
+    # Per-AI-reply metadata so the chat shows this message's own confidence/sources.
+    ai_confidence = db.Column(db.Float, nullable=True)
+    ai_sources = db.Column(db.JSON, nullable=True)
 
     conversation = db.relationship("Conversation", back_populates="messages")
     attachments: Mapped[list["Attachment"]] = relationship(

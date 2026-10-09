@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api, ApiError } from "../api/client";
 import { usePermission } from "../auth";
+import type { PromptVersion } from "../api/types";
 
 export function Settings() {
   const canAi = usePermission("ai_settings");
@@ -10,6 +11,7 @@ export function Settings() {
     <div className="page">
       <div className="page-head"><h1>الإعدادات</h1></div>
       {canAi && <AISettingsCard />}
+      {canAi && <PromptsCard />}
       {canChannels && <ChannelsCard />}
       {canOrg && <OrgSettingsCard />}
       {!canAi && !canChannels && !canOrg && <div className="muted">لا توجد إعدادات متاحة لدورك.</div>}
@@ -101,6 +103,79 @@ function AISettingsCard() {
       <div className="actions" style={{ marginTop: 14 }}>
         <button className="btn sm" onClick={() => void save()}>حفظ</button>
         {saved && <span className="ok">تم الحفظ ✓</span>}
+      </div>
+    </div>
+  );
+}
+
+/* --------------------------- prompts --------------------------- */
+
+function PromptsCard() {
+  const [prompts, setPrompts] = useState<PromptVersion[]>([]);
+  const [draft, setDraft] = useState("");
+  const [tone, setTone] = useState("");
+  const [error, setError] = useState<string | null>(null);
+
+  function reload() {
+    void api.get<{ prompts: PromptVersion[] }>("/settings/prompts").then((r) => setPrompts(r.prompts));
+  }
+  useEffect(reload, []);
+
+  async function create(activate: boolean) {
+    setError(null);
+    if (!draft.trim()) return;
+    try {
+      await api.post("/settings/prompts", { system_prompt: draft, tone: tone || null, activate });
+      setDraft(""); setTone("");
+      reload();
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "تعذّر الحفظ");
+    }
+  }
+
+  async function activate(id: number) {
+    await api.post(`/settings/prompts/${id}/activate`);
+    reload();
+  }
+
+  const active = prompts.find((p) => p.is_active);
+
+  return (
+    <div className="card">
+      <h2>شخصية الذكاء الاصطناعي (البرومت)</h2>
+      {active && (
+        <div className="muted" style={{ marginBottom: 10, fontSize: 12 }}>
+          النسخة المفعّلة حاليًا: v{active.version}{active.tone ? ` · ${active.tone}` : ""}
+        </div>
+      )}
+      <div className="field">
+        <label>نص برومت جديد</label>
+        <textarea className="ta" value={draft} onChange={(e) => setDraft(e.target.value)}
+          placeholder="تعليمات النظام للذكاء الاصطناعي…" />
+      </div>
+      <div className="row" style={{ marginTop: 10 }}>
+        <div className="field"><label>النبرة (اختياري)</label>
+          <input value={tone} onChange={(e) => setTone(e.target.value)} /></div>
+      </div>
+      {error && <div className="banner err" style={{ marginTop: 10 }}>{error}</div>}
+      <div className="actions" style={{ marginTop: 12 }}>
+        <button className="btn sm" onClick={() => void create(true)} disabled={!draft.trim()}>حفظ وتفعيل</button>
+        <button className="btn sm ghost" onClick={() => void create(false)} disabled={!draft.trim()}>حفظ كمسودة</button>
+      </div>
+
+      <h2 style={{ marginTop: 18 }}>النسخ ({prompts.length})</h2>
+      <div className="list-rows">
+        {prompts.map((p) => (
+          <div key={p.id} className="kb-item">
+            <div className="t">
+              <div className="ttl">النسخة v{p.version} {p.is_active && <span className="pill connected">مفعّلة</span>}</div>
+              <div className="mt" style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                {p.system_prompt.slice(0, 80)}
+              </div>
+            </div>
+            {!p.is_active && <button className="btn sm ghost" onClick={() => void activate(p.id)}>تفعيل</button>}
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -284,6 +359,7 @@ interface OrgSettings {
   auto_close_minutes: number | null;
   retention_days: number | null;
   handoff_text: string;
+  order_notify_telegram_chat_id: string | null;
 }
 
 const DAYS: { key: string; label: string }[] = [
@@ -408,6 +484,13 @@ function OrgSettingsCard() {
         <label>رسالة التحويل لموظف (عند التصعيد)</label>
         <textarea className="ta" style={{ minHeight: 60 }} value={s.handoff_text}
           onChange={(e) => setS({ ...s, handoff_text: e.target.value })} />
+      </div>
+
+      <div className="field" style={{ marginTop: 14 }}>
+        <label>معرّف جروب تليجرام لإشعارات الأوردرات (اختياري)</label>
+        <input value={s.order_notify_telegram_chat_id ?? ""} dir="ltr"
+          placeholder="-1001234567890"
+          onChange={(e) => setS({ ...s, order_notify_telegram_chat_id: e.target.value })} />
       </div>
 
       {error && <div className="banner err" style={{ marginTop: 12 }}>{error}</div>}

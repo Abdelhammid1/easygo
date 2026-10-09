@@ -8,7 +8,8 @@ from __future__ import annotations
 import logging
 
 from app.extensions import db
-from app.models.ai import AISettings
+from app.models.ai import AISettings, KBChunk, KBItem, Order
+from app.models.base import utcnow
 from app.models.core import Conversation, Message
 from app.models.enums import (
     ConversationState,
@@ -19,6 +20,68 @@ from app.models.enums import (
 )
 from app.services import automation, escalation, notify, outgoing, realtime
 from app.services.ai import service as ai_service
+
+
+def _source_titles(chunk_ids: list[int] | None) -> list[str]:
+    if not chunk_ids:
+        return []
+    rows = db.session.execute(
+        db.select(KBItem.title).join(KBChunk, KBChunk.item_id == KBItem.id)
+        .where(KBChunk.id.in_(chunk_ids))
+    ).all()
+    return sorted({t for (t,) in rows})
+
+
+def _save_new_address(conversation: Conversation, new_address: str | None) -> None:
+    if new_address and conversation.contact:
+        conversation.contact.address = new_address
+
+
+def _order_summary(conversation: Conversation, order: dict) -> str:
+    name = conversation.contact.name if conversation.contact else "عميل"
+    lines = [f"🧾 أوردر مؤكد — {name}"]
+    for stop in (order.get("stops") or []):
+        items = "، ".join(stop.get("items") or [])
+        lines.append(f"• {stop.get('shop', '')}: {items}".strip())
+    if order.get("delivery_landmark"):
+        lines.append(f"التسليم: {order['delivery_landmark']}")
+    if order.get("phones"):
+        lines.append("هواتف: " + "، ".join(str(p) for p in order["phones"]))
+    if order.get("payment_method"):
+        lines.append(f"الدفع: {order['payment_method']}")
+    if order.get("invoice_required"):
+        lines.append("مطلوب فاتورة")
+    return "\n".join(lines)
+
+
+def _notify_order_confirmed(conversation: Conversation, order: dict) -> None:
+    name = conversation.contact.name if conversation.contact else "عميل"
+    notify.notify_staff(
+        NotificationType.ORDER_CONFIRMED, f"أوردر مؤكد جديد من {name}",
+        conversation_id=conversation.id,
+    )
+    # Optional: post a summary to a staff Telegram group if configured.
+    from app.channels.registry import get_adapter
+    from app.models.core import Channel
+    from app.models.enums import ChannelStatus, ChannelType
+    from app.models.org import OrgSettings
+
+    org = db.session.get(OrgSettings, 1)
+    chat_id = org.order_notify_telegram_chat_id if org else None
+    if not chat_id:
+        return
+    channel = db.session.scalar(
+        db.select(Channel).where(
+            Channel.type == ChannelType.TELEGRAM,
+            Channel.status == ChannelStatus.CONNECTED,
+        )
+    )
+    if channel is None:
+        return
+    try:
+        get_adapter(channel).send_text(chat_id, _order_summary(conversation, order))
+    except Exception as exc:  # noqa: BLE001 — best-effort
+        log.warning("order group notify failed: %s", exc)
 
 _AI_FAILURE_SUBJECT = "easyGo: فشل في خدمة الذكاء الاصطناعي"
 
@@ -60,6 +123,8 @@ def _ai_replies_since_human(conversation_id: int) -> int:
     do NOT reset the count), so a long AI-only back-and-forth eventually hands
     off to a person even though each turn is prompted by the customer (§6.3).
     """
+    conversation = db.session.get(Conversation, conversation_id)
+    reset_at = conversation.ai_turn_reset_at if conversation else None
     rows = db.session.scalars(
         db.select(Message)
         .where(Message.conversation_id == conversation_id)
@@ -69,6 +134,9 @@ def _ai_replies_since_human(conversation_id: int) -> int:
     count = 0
     for m in rows:
         if m.sender_type == SenderType.AGENT:
+            break
+        # A reset point (agent reply / order confirmation) also stops the count.
+        if reset_at is not None and m.created_at is not None and m.created_at <= reset_at:
             break
         if m.sender_type == SenderType.AI:
             count += 1
@@ -123,6 +191,33 @@ def _process(message_id: int) -> None:
 
     # --- run the AI flow ---
     decision = ai_service.generate(conversation, trigger_message=message)
+    sources = _source_titles(decision.used_chunk_ids)
+
+    # Order confirmed -> send the model's reply, record the order, stay AI-active,
+    # reset the counter, and alert staff. NOT an escalation (ticket).
+    if decision.order_confirmed and decision.reply_text:
+        outgoing.send_reply(
+            conversation, decision.reply_text, sender_type=SenderType.AI,
+            ai_confidence=decision.confidence, ai_sources=sources,
+        )
+        order = decision.order or {}
+        db.session.add(Order(
+            conversation_id=conversation.id,
+            contact_id=conversation.contact_id,
+            stops=order.get("stops"),
+            delivery_landmark=order.get("delivery_landmark"),
+            phones=order.get("phones"),
+            payment_method=order.get("payment_method"),
+            invoice_required=bool(order.get("invoice_required")),
+            raw=order,
+        ))
+        conversation.order_confirmed = True
+        conversation.ai_turn_reset_at = utcnow()  # reset escalation counter
+        _save_new_address(conversation, decision.new_address)
+        db.session.commit()
+        realtime.conversation_updated(conversation)
+        _notify_order_confirmed(conversation, order)
+        return
 
     if decision.escalate or not decision.reply_text:
         escalation.escalate(
@@ -132,6 +227,8 @@ def _process(message_id: int) -> None:
             _alert_ai_failure("خطأ تقني في خدمة الذكاء الاصطناعي")
         return
 
+    _save_new_address(conversation, decision.new_address)  # committed by send_reply
     outgoing.send_reply(
-        conversation, decision.reply_text, sender_type=SenderType.AI
+        conversation, decision.reply_text, sender_type=SenderType.AI,
+        ai_confidence=decision.confidence, ai_sources=sources,
     )

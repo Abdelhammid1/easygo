@@ -93,3 +93,4 @@ class NotificationType(str, enum.Enum):
     SLA_BREACH = "sla_breach"
     CHANNEL_DOWN = "channel_down"
     AI_FAILURE = "ai_failure"
+    ORDER_CONFIRMED = "order_confirmed"

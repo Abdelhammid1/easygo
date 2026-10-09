@@ -32,6 +32,8 @@ def send_reply(
     *,
     sender_type: SenderType,
     sender_user_id: int | None = None,
+    ai_confidence: float | None = None,
+    ai_sources: list | None = None,
 ) -> Message:
     """Create an outbound message, send it via the channel adapter, track status."""
     channel = conversation.channel
@@ -49,6 +51,8 @@ def send_reply(
         type=MessageType.TEXT,
         body=text,
         send_status=SendStatus.PENDING,
+        ai_confidence=ai_confidence,
+        ai_sources=ai_sources,
     )
     db.session.add(message)
     db.session.flush()

@@ -21,6 +21,8 @@ def _message_payload(message) -> dict:
         "type": getattr(message.type, "value", message.type),
         "body": message.body,
         "created_at": message.created_at.isoformat() if message.created_at else None,
+        "ai_confidence": message.ai_confidence,
+        "ai_sources": message.ai_sources or [],
     }
 
 

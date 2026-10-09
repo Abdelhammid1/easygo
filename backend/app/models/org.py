@@ -40,3 +40,6 @@ class OrgSettings(TimestampMixin, db.Model):
 
     # Customer-facing handoff text on escalation (§6.3).
     handoff_text = db.Column(db.Text, nullable=False, default=DEFAULT_HANDOFF)
+
+    # Optional: Telegram chat id of a staff group to post confirmed-order summaries to.
+    order_notify_telegram_chat_id = db.Column(db.String(64), nullable=True)

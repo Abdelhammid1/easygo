@@ -24,6 +24,26 @@ function timeLabel(iso: string | null | undefined): string {
   return new Date(iso).toLocaleString("ar-EG", { hour: "2-digit", minute: "2-digit", day: "2-digit", month: "2-digit" });
 }
 
+function beep() {
+  try {
+    const Ctx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+    const ctx = new Ctx();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.frequency.value = 880;
+    gain.gain.setValueAtTime(0.0001, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.15, ctx.currentTime + 0.01);
+    gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.25);
+    osc.start();
+    osc.stop(ctx.currentTime + 0.26);
+    osc.onended = () => ctx.close();
+  } catch {
+    /* audio not available — ignore */
+  }
+}
+
 export function NotificationsBell() {
   const [items, setItems] = useState<Notif[]>([]);
   const [unread, setUnread] = useState(0);
@@ -49,6 +69,7 @@ export function NotificationsBell() {
         return [{ ...e, is_read: false, created_at: new Date().toISOString() }, ...prev].slice(0, 100);
       });
       setUnread((u) => u + 1);
+      if (e.type === "order_confirmed") beep();
     };
     socket.on("notification:new", onNew);
     return () => {
@@ -110,9 +131,10 @@ export function NotificationsBell() {
           <div className="notif-list">
             {items.length === 0 && <div className="notif-empty">لا إشعارات</div>}
             {items.map((n) => (
-              <div key={n.id} className={"notif-row" + (n.is_read ? "" : " unread")}
+              <div key={n.id}
+                className={"notif-row" + (n.is_read ? "" : " unread") + (n.type === "order_confirmed" ? " order" : "")}
                 onClick={() => void markOne(n)}>
-                <div className="bd">{n.body ?? n.type}</div>
+                <div className="bd">{n.type === "order_confirmed" ? "🧾 " : ""}{n.body ?? n.type}</div>
                 <div className="tm num">{timeLabel(n.created_at)}</div>
               </div>
             ))}

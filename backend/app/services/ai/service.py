@@ -36,13 +36,20 @@ _REASON_MAP = {
 
 _JSON_CONTRACT = (
     "أعد ردك بصيغة JSON فقط دون أي نص خارج الـ JSON، بالشكل التالي:\n"
-    '{"reply": "نص الرد للعميل", "confidence": 0.0, '
-    '"escalate": false, "escalation_reason": null}\n'
+    '{"reply": "نص الرد للعميل", "confidence": 0.0, "escalate": false, '
+    '"escalation_reason": null, "order_confirmed": false, '
+    '"order": {"stops": [{"shop": "اسم المحل", "items": ["صنف"]}], '
+    '"delivery_landmark": "مكان التسليم", "phones": ["رقم"], '
+    '"payment_method": "كاش/محفظة", "invoice_required": false}, "new_address": null}\n'
     "اجعل escalate=true وحدّد escalation_reason بإحدى القيم "
     "[requested_human, negative_sentiment, sensitive_topic, no_kb_answer, low_confidence] "
     "إذا: طلب العميل التحدث مع موظف، أو ظهرت نبرة غضب/شكوى/استياء، أو كان الموضوع "
-    "حساسًا (دفع، استرجاع، شكوى رسمية، مسائل قانونية)، أو لم تجد إجابة في قاعدة "
-    "المعرفة، أو كانت ثقتك منخفضة. لا تخترع أسعارًا أو سياسات غير موجودة في قاعدة المعرفة."
+    "حساسًا (شكوى رسمية، مسائل قانونية)، أو لم تجد إجابة في قاعدة المعرفة، أو كانت "
+    "ثقتك منخفضة. لا تخترع أسعارًا أو سياسات غير موجودة في قاعدة المعرفة.\n"
+    "تأكيد الأوردر ليس تصعيدًا: عندما يؤكّد العميل الطلب (مثل \"تمام\" أو \"أكّد\")، "
+    "اجعل order_confirmed=true واملأ كائن order، واكتب رسالة تأكيد ودّية في reply، "
+    "ولا تجعل escalate=true ولا تستخدم sensitive_topic في هذه الحالة.\n"
+    "إذا أعطى العميل عنوان تسليم جديدًا ليُحفظ، ضعه في new_address."
 )
 
 
@@ -56,6 +63,9 @@ class AIDecision:
     latency_ms: int
     cost_usd: float | None
     raw_output: str
+    order_confirmed: bool = False
+    order: dict | None = None
+    new_address: str | None = None
 
 
 def get_provider(settings: AISettings) -> AIProvider:
@@ -87,9 +97,28 @@ def _history(conversation: Conversation) -> list[ChatMessage]:
     for m in rows:
         if not m.body:
             continue
+        # Skip system notices (escalation lines) — feeding them back as the
+        # assistant made the model echo/repeat them.
+        if m.sender_type == SenderType.SYSTEM:
+            continue
         role = "user" if m.sender_type == SenderType.CUSTOMER else "assistant"
         out.append(ChatMessage(role=role, content=m.body))
     return out
+
+
+def _customer_context(conversation: Conversation) -> str | None:
+    """A system line with the customer's saved data (name/phone/address)."""
+    contact = conversation.contact
+    if contact is None:
+        return None
+    address = (contact.address or "").strip() or "لا يوجد عنوان مسجّل"
+    return (
+        "بيانات العميل المسجّلة — "
+        f"الاسم: {contact.name or 'غير معروف'}، "
+        f"الهاتف: {contact.phone or 'غير مسجّل'}، "
+        f"العنوان: {address}. "
+        "لو فيه عنوان مسجّل، اعرضه على العميل واسأله \"نفس العنوان؟\" بدل ما تطلبه من الأول."
+    )
 
 
 def _parse(raw: str) -> dict:
@@ -121,6 +150,9 @@ def playground(query: str) -> dict:
         "confidence": parsed.get("confidence"),
         "escalate": bool(parsed.get("escalate")),
         "escalation_reason": parsed.get("escalation_reason"),
+        "order_confirmed": bool(parsed.get("order_confirmed")),
+        "order": parsed.get("order"),
+        "new_address": parsed.get("new_address"),
         "used_chunks": [{"id": c.id, "item_id": c.item_id, "content": c.content}
                         for c in chunks],
         "cost_usd": completion.cost_usd,
@@ -138,6 +170,9 @@ def generate(conversation: Conversation, trigger_message: Message | None = None)
     kb_block = "\n\n".join(f"- {c.content}" for c in chunks)
 
     messages: list[ChatMessage] = [ChatMessage("system", _system_prompt(settings))]
+    customer_line = _customer_context(conversation)
+    if customer_line:
+        messages.append(ChatMessage("system", customer_line))
     if kb_block:
         messages.append(ChatMessage(
             "system", f"مقاطع ذات صلة من قاعدة المعرفة:\n{kb_block}"
@@ -162,11 +197,19 @@ def generate(conversation: Conversation, trigger_message: Message | None = None)
     confidence = float(parsed.get("confidence") or 0.0)
     escalate = bool(parsed.get("escalate"))
     reason = _REASON_MAP.get(parsed.get("escalation_reason") or "")
+    order_confirmed = bool(parsed.get("order_confirmed"))
+    order = parsed.get("order") if isinstance(parsed.get("order"), dict) else None
+    new_address = (parsed.get("new_address") or "").strip() or None
 
     # Enforce the confidence threshold regardless of what the model said.
     if confidence < settings.confidence_threshold:
         escalate = True
         reason = reason or EscalationReason.LOW_CONFIDENCE
+
+    # A confirmed order is progress, not an escalation — it overrides the above.
+    if order_confirmed:
+        escalate = False
+        reason = None
 
     reply_text = (parsed.get("reply") or "").strip() or None
     if escalate and reason is None:
@@ -181,6 +224,9 @@ def generate(conversation: Conversation, trigger_message: Message | None = None)
         latency_ms=latency_ms,
         cost_usd=cost,
         raw_output=raw_output,
+        order_confirmed=order_confirmed,
+        order=order,
+        new_address=new_address,
     )
 
     db.session.add(AIRun(

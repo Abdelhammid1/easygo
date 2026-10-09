@@ -12,7 +12,7 @@ from app.services import audit
 bp = Blueprint("org_settings", __name__, url_prefix="/api/settings/org")
 
 _STR_FIELDS = ("welcome_text", "out_of_hours_text", "handoff_text",
-               "timezone", "auto_assign_strategy")
+               "timezone", "auto_assign_strategy", "order_notify_telegram_chat_id")
 _BOOL_FIELDS = ("welcome_enabled", "out_of_hours_enabled", "auto_assign_enabled")
 _INT_FIELDS = ("sla_minutes", "auto_close_minutes", "retention_days")
 
@@ -31,6 +31,7 @@ def _json(s: OrgSettings) -> dict:
         "auto_close_minutes": s.auto_close_minutes,
         "retention_days": s.retention_days,
         "handoff_text": s.handoff_text,
+        "order_notify_telegram_chat_id": s.order_notify_telegram_chat_id,
     }
 
 

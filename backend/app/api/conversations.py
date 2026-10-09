@@ -5,7 +5,8 @@ from flask import Blueprint, jsonify, request
 from flask_login import current_user, login_required
 
 from app.extensions import db
-from app.models.ai import AIRun, KBChunk, KBItem
+from app.models.ai import AIRun, KBChunk, KBItem, Order
+from app.models.base import utcnow
 from app.models.core import Attachment, Conversation, Message, User
 from app.models.enums import AIMode, ConversationState, SenderType, UserRole, UserStatus
 from app.models.support import InternalNote, Tag
@@ -31,6 +32,7 @@ def _conv_json(c: Conversation) -> dict:
         "last_message_at": c.last_message_at.isoformat() if c.last_message_at else None,
         "reply_window_expires_at": expires.isoformat() if expires else None,
         "reply_window_open": outgoing.reply_window_open(c),
+        "order_confirmed": c.order_confirmed,
     }
 
 
@@ -66,6 +68,8 @@ def _msg_json(m: Message) -> dict:
         "body": m.body,
         "send_status": getattr(m.send_status, "value", m.send_status),
         "created_at": m.created_at.isoformat() if m.created_at else None,
+        "ai_confidence": m.ai_confidence,
+        "ai_sources": m.ai_sources or [],
         "attachments": [
             {
                 "id": a.id,
@@ -94,6 +98,8 @@ def list_conversations():
     assignee = request.args.get("assignee")
     if assignee == "me":
         query = query.where(Conversation.assignee_id == current_user.id)
+    if request.args.get("order_confirmed") == "1":
+        query = query.where(Conversation.order_confirmed.is_(True))
     query = query.order_by(Conversation.last_message_at.desc().nullslast()).limit(100)
     rows = db.session.scalars(query).all()
     return jsonify(conversations=[_conv_json(c) for c in rows])
@@ -144,6 +150,7 @@ def reply(conversation_id: int):
     if conv.state == ConversationState.NEEDS_HUMAN:
         conv.state = ConversationState.OPEN
     conv.unread_count = 0
+    conv.ai_turn_reset_at = utcnow()  # reset the AI escalation counter
     db.session.commit()
     realtime.conversation_updated(conv)
 
@@ -239,6 +246,29 @@ def copilot(conversation_id: int):
         "sources": sorted(set(titles)),
         "cost_usd": float(run.cost_usd) if run.cost_usd is not None else None,
         "at": run.created_at.isoformat() if run.created_at else None,
+    })
+
+
+@bp.get("/<int:conversation_id>/order")
+@login_required
+@require_permission(Permission.VIEW_CONVERSATIONS)
+def get_order(conversation_id: int):
+    """Latest confirmed order for the conversation (context panel)."""
+    order = db.session.scalar(
+        db.select(Order).where(Order.conversation_id == conversation_id)
+        .order_by(Order.created_at.desc()).limit(1)
+    )
+    if order is None:
+        return jsonify(order=None)
+    return jsonify(order={
+        "id": order.id,
+        "status": order.status,
+        "stops": order.stops or [],
+        "delivery_landmark": order.delivery_landmark,
+        "phones": order.phones or [],
+        "payment_method": order.payment_method,
+        "invoice_required": order.invoice_required,
+        "at": order.created_at.isoformat() if order.created_at else None,
     })
 
 

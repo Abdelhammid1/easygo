@@ -4,6 +4,7 @@ from app.models.ai import (  # noqa: F401
     AISettings,
     KBChunk,
     KBItem,
+    Order,
     PromptVersion,
 )
 from app.models.core import (  # noqa: F401
@@ -30,5 +31,5 @@ __all__ = [
     "User", "Channel", "Contact", "ContactIdentity", "Conversation",
     "Message", "Attachment", "Tag", "conversation_tags", "InternalNote",
     "CannedResponse", "Notification", "AuditLog", "KBItem", "KBChunk",
-    "AISettings", "PromptVersion", "AIRun", "OrgSettings", "PushSubscription",
+    "AISettings", "PromptVersion", "AIRun", "Order", "OrgSettings", "PushSubscription",
 ]

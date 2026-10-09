@@ -119,3 +119,23 @@ class AIRun(TimestampMixin, db.Model):
     latency_ms = db.Column(db.Integer, nullable=True)
     cost_usd = db.Column(db.Numeric(10, 5), nullable=True)
     rating = db.Column(db.Boolean, nullable=True)  # reviewer feedback: good/bad
+
+
+class Order(TimestampMixin, db.Model):
+    """A delivery order the AI confirmed in a conversation (ticket: order flow)."""
+    __tablename__ = "orders"
+
+    id = db.Column(db.BigInteger, primary_key=True)
+    conversation_id = db.Column(
+        db.Integer, db.ForeignKey("conversations.id", ondelete="CASCADE"),
+        nullable=False, index=True,
+    )
+    contact_id = db.Column(db.Integer, db.ForeignKey("contacts.id"), nullable=True, index=True)
+
+    status = db.Column(db.String(24), nullable=False, default="confirmed")
+    stops = db.Column(db.JSON, nullable=True)            # [{shop, items:[...]}]
+    delivery_landmark = db.Column(db.Text, nullable=True)
+    phones = db.Column(db.JSON, nullable=True)           # ["01..."]
+    payment_method = db.Column(db.String(60), nullable=True)
+    invoice_required = db.Column(db.Boolean, nullable=False, default=False)
+    raw = db.Column(db.JSON, nullable=True)              # the model's full order object

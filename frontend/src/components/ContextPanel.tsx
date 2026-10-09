@@ -1,5 +1,6 @@
-import { useState } from "react";
-import type { Conversation, Copilot, Note, Tag } from "../api/types";
+import { useEffect, useState } from "react";
+import { api } from "../api/client";
+import type { Conversation, Copilot, Note, Order, Tag } from "../api/types";
 
 function reasonLabel(code: string | null): string {
   const map: Record<string, string> = {
@@ -37,6 +38,13 @@ export function ContextPanel({
   const usedTagIds = new Set((conversation.tags ?? []).map((t) => t.id));
   const availableTags = allTags.filter((t) => !usedTagIds.has(t.id));
 
+  const [order, setOrder] = useState<Order | null>(null);
+  useEffect(() => {
+    if (!conversation.order_confirmed) { setOrder(null); return; }
+    void api.get<{ order: Order | null }>(`/conversations/${conversation.id}/order`)
+      .then((r) => setOrder(r.order)).catch(() => setOrder(null));
+  }, [conversation.id, conversation.order_confirmed]);
+
   function submitNote() {
     const b = note.trim();
     if (!b) return;
@@ -64,6 +72,24 @@ export function ContextPanel({
         {c?.phone && <div className="kv"><span className="k">الهاتف</span><span className="v num" style={{ direction: "ltr" }}>{c.phone}</span></div>}
         {c?.address && <div className="kv"><span className="k">العنوان</span><span className="v">{c.address}</span></div>}
       </div>
+
+      {order && (
+        <div className="ctx-sec">
+          <div className="ctx-h">🧾 الأوردر المؤكد</div>
+          <div className="order-box">
+            {(order.stops ?? []).map((st, i) => (
+              <div key={i} className="stop">
+                <b>{st.shop || "محل"}</b>
+                <div className="meta">{(st.items ?? []).join("، ")}</div>
+              </div>
+            ))}
+            {order.delivery_landmark && <div className="meta">التسليم: {order.delivery_landmark}</div>}
+            {order.phones.length > 0 && <div className="meta" style={{ direction: "ltr" }}>{order.phones.join(" · ")}</div>}
+            {order.payment_method && <div className="meta">الدفع: {order.payment_method}</div>}
+            {order.invoice_required && <div className="meta">مطلوب فاتورة</div>}
+          </div>
+        </div>
+      )}
 
       <div className="ctx-sec">
         <div className="ctx-h">الوسوم</div>

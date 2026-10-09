@@ -41,6 +41,7 @@ export interface Conversation {
   last_message_at: string | null;
   reply_window_expires_at: string | null;
   reply_window_open: boolean;
+  order_confirmed?: boolean;
 }
 
 export type SenderType = "customer" | "agent" | "ai" | "system";
@@ -63,7 +64,30 @@ export interface Message {
   body: string | null;
   send_status: string | null;
   created_at: string | null;
+  ai_confidence: number | null;
+  ai_sources: string[];
   attachments: Attachment[];
+}
+
+export interface Order {
+  id: number;
+  status: string;
+  stops: { shop?: string; items?: string[] }[];
+  delivery_landmark: string | null;
+  phones: string[];
+  payment_method: string | null;
+  invoice_required: boolean;
+  at: string | null;
+}
+
+export interface PromptVersion {
+  id: number;
+  version: number;
+  tone: string | null;
+  notes: string | null;
+  system_prompt: string;
+  is_active: boolean;
+  created_at: string | null;
 }
 
 export interface MessageEvent {
@@ -74,6 +98,8 @@ export interface MessageEvent {
   type: string;
   body: string | null;
   created_at: string | null;
+  ai_confidence?: number | null;
+  ai_sources?: string[];
 }
 
 export type ConversationPatch = Partial<Conversation> & { id: number };
