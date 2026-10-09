@@ -133,14 +133,24 @@ def _parse(raw: str) -> dict:
 
 
 def _order_has_content(order: dict | None) -> bool:
-    """An order counts as confirmed only if it carries real details (anti-injection)."""
+    """True if the order object carries any real detail.
+
+    A sanity check (tolerant of odd/injected value types) that ignores a bare
+    order_confirmed=true with an empty order — it is NOT a strong security
+    boundary (injected text can supply fake details). The real safeguards are the
+    prompt's anti-injection rule and staff reviewing every order.
+    """
     if not isinstance(order, dict):
         return False
-    stops = order.get("stops") or []
-    has_stop = any(
+    stops = order.get("stops")
+    if isinstance(stops, list) and any(
         isinstance(s, dict) and (s.get("items") or s.get("shop")) for s in stops
-    )
-    return bool(has_stop or (order.get("delivery_landmark") or "").strip())
+    ):
+        return True
+    for key in ("delivery_landmark", "payment_method", "phones", "invoice_required"):
+        if order.get(key):
+            return True
+    return False
 
 
 def playground(query: str) -> dict:
@@ -159,14 +169,17 @@ def playground(query: str) -> dict:
     provider = get_provider(settings)
     completion = provider.complete(messages, json_mode=True)
     parsed = _parse(completion.content)
+    order = parsed.get("order") if isinstance(parsed.get("order"), dict) else None
+    _na = parsed.get("new_address")
     return {
         "reply": parsed.get("reply"),
         "confidence": parsed.get("confidence"),
         "escalate": bool(parsed.get("escalate")),
         "escalation_reason": parsed.get("escalation_reason"),
-        "order_confirmed": bool(parsed.get("order_confirmed")),
-        "order": parsed.get("order"),
-        "new_address": parsed.get("new_address"),
+        # Mirror generate()'s guards so the preview matches production behaviour.
+        "order_confirmed": bool(parsed.get("order_confirmed")) and _order_has_content(order),
+        "order": order,
+        "new_address": (_na.strip()[:400] or None) if isinstance(_na, str) else None,
         "used_chunks": [{"id": c.id, "item_id": c.item_id, "content": c.content}
                         for c in chunks],
         "cost_usd": completion.cost_usd,
@@ -212,11 +225,12 @@ def generate(conversation: Conversation, trigger_message: Message | None = None)
     escalate = bool(parsed.get("escalate"))
     reason = _REASON_MAP.get(parsed.get("escalation_reason") or "")
     order = parsed.get("order") if isinstance(parsed.get("order"), dict) else None
-    # Defense-in-depth against prompt injection: a confirmed order must carry real
-    # order content (not just a flag a customer coaxed the model into setting).
+    # Ignore a bare order_confirmed with no order details (sanity check; the model
+    # values are untrusted so _order_has_content tolerates odd types).
     order_confirmed = bool(parsed.get("order_confirmed")) and _order_has_content(order)
-    # Bound the address the model wants to save (customer-influenced, untrusted).
-    new_address = (parsed.get("new_address") or "").strip()[:400] or None
+    # Bound the address the model wants to save (untrusted; only accept a string).
+    _na = parsed.get("new_address")
+    new_address = _na.strip()[:400] or None if isinstance(_na, str) else None
 
     # Enforce the confidence threshold regardless of what the model said.
     if confidence < settings.confidence_threshold:
