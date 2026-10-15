@@ -34,6 +34,14 @@ _REASON_MAP = {
     "ai_error": EscalationReason.AI_ERROR,
 }
 
+# Reasons that genuinely need a human. Low confidence / no-KB-answer are NOT here:
+# the bot asks/clarifies instead of handing off.
+_HUMAN_REASONS = (
+    EscalationReason.REQUESTED_HUMAN,
+    EscalationReason.NEGATIVE_SENTIMENT,
+    EscalationReason.SENSITIVE_TOPIC,
+)
+
 _JSON_CONTRACT = (
     "أعد ردك بصيغة JSON فقط دون أي نص خارج الـ JSON، بالشكل التالي:\n"
     '{"reply": "نص الرد للعميل", "confidence": 0.0, "escalate": false, '
@@ -41,11 +49,13 @@ _JSON_CONTRACT = (
     '"order": {"stops": [{"shop": "اسم المحل", "items": ["صنف"]}], '
     '"delivery_landmark": "مكان التسليم", "phones": ["رقم"], '
     '"payment_method": "كاش/محفظة", "invoice_required": false}, "new_address": null}\n'
-    "اجعل escalate=true وحدّد escalation_reason بإحدى القيم "
-    "[requested_human, negative_sentiment, sensitive_topic, no_kb_answer, low_confidence] "
-    "إذا: طلب العميل التحدث مع موظف، أو ظهرت نبرة غضب/شكوى/استياء، أو كان الموضوع "
-    "حساسًا (شكوى رسمية، مسائل قانونية)، أو لم تجد إجابة في قاعدة المعرفة، أو كانت "
-    "ثقتك منخفضة. لا تخترع أسعارًا أو سياسات غير موجودة في قاعدة المعرفة.\n"
+    "اجعل escalate=true وحدّد escalation_reason بإحدى القيم فقط "
+    "[requested_human, negative_sentiment, sensitive_topic] "
+    "إذا: طلب العميل التحدث مع موظف، أو ظهرت نبرة غضب/شكوى حقيقية/استياء، أو كان "
+    "الموضوع حساسًا فعلًا (شكوى رسمية أو مسألة قانونية). "
+    "لا تصعّد أبدًا لمجرد إنك مش متأكد أو مش لاقي الإجابة في قاعدة المعرفة — "
+    "في الحالة دي اسأل العميل يوضّح أو اجمع تفاصيل أكتر واكتب ردًّا مفيدًا. "
+    "لا تخترع أسعارًا أو سياسات غير موجودة في قاعدة المعرفة.\n"
     "تأكيد الأوردر ليس تصعيدًا: عندما يؤكّد العميل الطلب (مثل \"تمام\" أو \"أكّد\")، "
     "اجعل order_confirmed=true واملأ كائن order، واكتب رسالة تأكيد ودّية في reply، "
     "ولا تجعل escalate=true ولا تستخدم sensitive_topic في هذه الحالة.\n"
@@ -232,19 +242,27 @@ def generate(conversation: Conversation, trigger_message: Message | None = None)
     _na = parsed.get("new_address")
     new_address = _na.strip()[:400] or None if isinstance(_na, str) else None
 
-    # Enforce the confidence threshold regardless of what the model said.
-    if confidence < settings.confidence_threshold:
-        escalate = True
-        reason = reason or EscalationReason.LOW_CONFIDENCE
+    reply_text = (parsed.get("reply") or "").strip() or None
 
-    # A confirmed order is progress, not an escalation — it overrides the above.
+    # A confirmed order is progress, not an escalation.
     if order_confirmed:
         escalate = False
         reason = None
 
-    reply_text = (parsed.get("reply") or "").strip() or None
+    # Only hand off for reasons that genuinely need a human. Being unsure or not
+    # finding a KB answer is NOT a hand-off — the bot should ask/clarify instead.
+    # So if the model wants to escalate for anything else but still wrote a reply,
+    # send the reply rather than escalate. (No confidence-threshold auto-escalation.)
+    if escalate and reason not in _HUMAN_REASONS and reply_text:
+        escalate = False
+        reason = None
+
+    # Last resort only: the model produced no usable reply at all.
+    if not escalate and not reply_text:
+        escalate = True
+        reason = reason or EscalationReason.LOW_CONFIDENCE
     if escalate and reason is None:
-        reason = EscalationReason.LOW_CONFIDENCE
+        reason = EscalationReason.REQUESTED_HUMAN
 
     decision = AIDecision(
         reply_text=None if escalate else reply_text,
