@@ -42,6 +42,9 @@ _HUMAN_REASONS = (
     EscalationReason.SENSITIVE_TOPIC,
 )
 
+# Sent when the model returns no text and there is no real reason to escalate.
+_FALLBACK_REPLY = "ممكن توضّح طلبك أكتر لو سمحت؟ وأنا تحت أمرك 🙏"
+
 _JSON_CONTRACT = (
     "أعد ردك بصيغة JSON فقط دون أي نص خارج الـ JSON، بالشكل التالي:\n"
     '{"reply": "نص الرد للعميل", "confidence": 0.0, "escalate": false, '
@@ -243,26 +246,26 @@ def generate(conversation: Conversation, trigger_message: Message | None = None)
     new_address = _na.strip()[:400] or None if isinstance(_na, str) else None
 
     reply_text = (parsed.get("reply") or "").strip() or None
+    provider_failed = reason == EscalationReason.AI_ERROR
 
-    # A confirmed order is progress, not an escalation.
+    # Decide escalation strictly: only for a genuine human reason, or a real AI
+    # outage. Never for low confidence / "unsure" / no-KB-answer.
     if order_confirmed:
         escalate = False
         reason = None
-
-    # Only hand off for reasons that genuinely need a human. Being unsure or not
-    # finding a KB answer is NOT a hand-off — the bot should ask/clarify instead.
-    # So if the model wants to escalate for anything else but still wrote a reply,
-    # send the reply rather than escalate. (No confidence-threshold auto-escalation.)
-    if escalate and reason not in _HUMAN_REASONS and reply_text:
+    elif escalate and reason in _HUMAN_REASONS:
+        pass  # genuine hand-off (customer asked for a human / anger / sensitive)
+    elif provider_failed:
+        escalate = True
+        reason = EscalationReason.AI_ERROR
+    else:
         escalate = False
         reason = None
 
-    # Last resort only: the model produced no usable reply at all.
+    # If we're not escalating but the model gave no text, ask to clarify instead
+    # of handing off — a blank model reply is not a reason to call a human.
     if not escalate and not reply_text:
-        escalate = True
-        reason = reason or EscalationReason.LOW_CONFIDENCE
-    if escalate and reason is None:
-        reason = EscalationReason.REQUESTED_HUMAN
+        reply_text = _FALLBACK_REPLY
 
     decision = AIDecision(
         reply_text=None if escalate else reply_text,
