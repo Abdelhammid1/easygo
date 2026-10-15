@@ -56,8 +56,8 @@ class AISettings(TimestampMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     # Global kill switch — when False, no automatic replies anywhere.
     ai_enabled = db.Column(db.Boolean, nullable=False, default=True)
-    confidence_threshold = db.Column(db.Float, nullable=False, default=0.6)
-    max_consecutive_replies = db.Column(db.Integer, nullable=False, default=3)
+    confidence_threshold = db.Column(db.Float, nullable=False, default=0.35)
+    max_consecutive_replies = db.Column(db.Integer, nullable=False, default=10)
     daily_request_cap = db.Column(db.Integer, nullable=True)
     send_delay_seconds = db.Column(db.Integer, nullable=False, default=0)
     active_prompt_version_id = db.Column(
