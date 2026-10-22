@@ -139,9 +139,19 @@ class Order(TimestampMixin, db.Model):
     contact_id = db.Column(db.Integer, db.ForeignKey("contacts.id"), nullable=True, index=True)
 
     status = db.Column(db.String(24), nullable=False, default="confirmed")
-    stops = db.Column(db.JSON, nullable=True)            # [{shop, items:[...]}]
+    stops = db.Column(db.JSON, nullable=True)            # [{shop, category, items:[...]}]
     delivery_landmark = db.Column(db.Text, nullable=True)
     phones = db.Column(db.JSON, nullable=True)           # ["01..."]
     payment_method = db.Column(db.String(60), nullable=True)
     invoice_required = db.Column(db.Boolean, nullable=False, default=False)
     raw = db.Column(db.JSON, nullable=True)              # the model's full order object
+
+    # Pricing (ticket §3): the rep prices delivery; null + price_pending=True means
+    # "needs a price". places_count = number of shops/stops to visit.
+    delivery_fee = db.Column(db.Numeric(10, 2), nullable=True)
+    price_pending = db.Column(db.Boolean, nullable=False, default=False)
+    places_count = db.Column(db.Integer, nullable=True)
+    # Edit history: a confirmed-but-undelivered order is updated in place (same id);
+    # the pre-edit snapshot is appended to `revisions` and `revision` is bumped.
+    revision = db.Column(db.Integer, nullable=False, default=0)
+    revisions = db.Column(db.JSON, nullable=True)        # list of prior snapshots

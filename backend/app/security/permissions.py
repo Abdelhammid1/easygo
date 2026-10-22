@@ -38,7 +38,9 @@ ROLE_PERMISSIONS: dict[str, set[Permission]] = {
         Permission.ASSIGN_CONVERSATIONS,
         Permission.CHANGE_CONVERSATION_STATE,
         Permission.TOGGLE_AI_CONVERSATION,
-        Permission.AI_KILL_SWITCH,
+        # AI kill switch is ADMIN-only (ticket §6): the global stop turned off
+        # unnoticed once and silenced the bot for hours. Per-conversation AI toggle
+        # (TOGGLE_AI_CONVERSATION) stays available to supervisors.
         Permission.MANAGE_KB,
         Permission.VIEW_REPORTS,
         Permission.VIEW_AUDIT_LOG,

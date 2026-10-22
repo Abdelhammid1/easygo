@@ -76,34 +76,86 @@ def _flag_attention(conversation: Conversation, message: Message) -> None:
     realtime.conversation_updated(conversation)
 
 
-def _order_summary(conversation: Conversation, order: dict) -> str:
+def _places_count(order: dict) -> int | None:
+    """How many shops to visit — display only (derived, not price-authoritative)."""
+    pc = order.get("places_count")
+    if isinstance(pc, bool):
+        pc = None
+    return (int(pc) if isinstance(pc, (int, float))
+            else (len(order.get("stops") or []) or None))
+
+
+def _active_order(conversation_id: int) -> Order | None:
+    """Latest not-yet-delivered order on the conversation (editable in place)."""
+    return db.session.scalar(
+        db.select(Order).where(
+            Order.conversation_id == conversation_id,
+            Order.status.notin_(("delivered", "cancelled")),
+        ).order_by(Order.id.desc())
+    )
+
+
+def _order_snapshot(order: Order) -> dict:
+    fee = order.delivery_fee
+    return {
+        "revision": order.revision,
+        "stops": order.stops,
+        "delivery_landmark": order.delivery_landmark,
+        "phones": order.phones,
+        "payment_method": order.payment_method,
+        "invoice_required": order.invoice_required,
+        "delivery_fee": float(fee) if fee is not None else None,
+        "price_pending": order.price_pending,
+        "places_count": order.places_count,
+        "at": order.updated_at.isoformat() if order.updated_at else None,
+    }
+
+
+def _order_summary(conversation: Conversation, order: Order, *, updated: bool) -> str:
     name = conversation.contact.name if conversation.contact else "عميل"
-    lines = [f"🧾 أوردر مؤكد — {name}"]
-    for stop in (order.get("stops") or []):
-        items = "، ".join(stop.get("items") or [])
-        lines.append(f"• {stop.get('shop', '')}: {items}".strip())
-    if order.get("delivery_landmark"):
-        lines.append(f"التسليم: {order['delivery_landmark']}")
-    if order.get("phones"):
-        lines.append("هواتف: " + "، ".join(str(p) for p in order["phones"]))
-    if order.get("payment_method"):
-        lines.append(f"الدفع: {order['payment_method']}")
-    if order.get("invoice_required"):
+    head = f"✏️ تعديل الأوردر #{order.id}" if updated else f"🧾 أوردر مؤكد #{order.id}"
+    lines = [f"{head} — {name}"]
+    for stop in (order.stops or []):
+        if not isinstance(stop, dict):
+            continue
+        items = "، ".join(str(i) for i in (stop.get("items") or []))
+        label = stop.get("shop", "")
+        if stop.get("category"):
+            label = f"{label} ({stop['category']})"
+        lines.append(f"• {label}: {items}".strip())
+    if order.places_count:
+        lines.append(f"عدد الأماكن: {order.places_count}")
+    if order.delivery_landmark:
+        lines.append(f"التسليم: {order.delivery_landmark}")
+    if order.phones:
+        lines.append("هواتف: " + "، ".join(str(p) for p in order.phones))
+    if order.payment_method:
+        lines.append(f"الدفع: {order.payment_method}")
+    if order.price_pending:
+        lines.append("التوصيل: بانتظار التسعير")
+    elif order.delivery_fee is not None:
+        lines.append(f"التوصيل: {order.delivery_fee} ج")
+    if order.invoice_required:
         lines.append("مطلوب فاتورة")
     return "\n".join(lines)
 
 
-def _notify_order_confirmed(conversation: Conversation, order: dict) -> None:
+def _notify_order(conversation: Conversation, order: Order, *, updated: bool) -> None:
     name = conversation.contact.name if conversation.contact else "عميل"
-    notify.notify_staff(
-        NotificationType.ORDER_CONFIRMED, f"أوردر مؤكد جديد من {name}",
-        conversation_id=conversation.id,
-    )
+    if updated:
+        notify.notify_staff(
+            NotificationType.ORDER_UPDATED, f"تم تعديل الأوردر #{order.id} — {name}",
+            conversation_id=conversation.id,
+        )
+    else:
+        notify.notify_staff(
+            NotificationType.ORDER_CONFIRMED, f"أوردر مؤكد جديد #{order.id} — {name}",
+            conversation_id=conversation.id,
+        )
     # Optional: post a summary to a staff Telegram group if configured.
     from app.channels.registry import get_adapter
     from app.models.core import Channel
     from app.models.enums import ChannelStatus, ChannelType
-    from app.models.org import OrgSettings
 
     org = db.session.get(OrgSettings, 1)
     chat_id = org.order_notify_telegram_chat_id if org else None
@@ -118,9 +170,63 @@ def _notify_order_confirmed(conversation: Conversation, order: dict) -> None:
     if channel is None:
         return
     try:
-        get_adapter(channel).send_text(chat_id, _order_summary(conversation, order))
+        get_adapter(channel).send_text(
+            chat_id, _order_summary(conversation, order, updated=updated))
     except Exception as exc:  # noqa: BLE001 — best-effort
         log.warning("order group notify failed: %s", exc)
+
+
+def _handle_order(conversation: Conversation, decision, sources: list[str]) -> None:
+    """Send the AI confirmation, then create OR update-in-place the order (§3)."""
+    outgoing.send_reply(
+        conversation, decision.reply_text, sender_type=SenderType.AI,
+        ai_confidence=decision.confidence, ai_sources=sources,
+    )
+    order_dict = decision.order or {}
+    places = _places_count(order_dict)
+    existing = _active_order(conversation.id)
+    if existing is not None:
+        # Edit an existing confirmed order: snapshot the old state, bump revision.
+        history = list(existing.revisions or [])
+        history.append(_order_snapshot(existing))
+        existing.revisions = history
+        existing.revision = (existing.revision or 0) + 1
+        existing.stops = order_dict.get("stops")
+        existing.delivery_landmark = order_dict.get("delivery_landmark")
+        existing.phones = order_dict.get("phones")
+        existing.payment_method = order_dict.get("payment_method")
+        existing.invoice_required = bool(order_dict.get("invoice_required"))
+        existing.places_count = places
+        # Delivery pricing is REP-authoritative, never model-set (anti-injection):
+        # keep a rep-set fee across edits; otherwise it still needs pricing.
+        if existing.delivery_fee is None:
+            existing.price_pending = True
+        existing.raw = order_dict  # model's suggested fee (if any) lives here only
+        order_row = existing
+        updated = True
+    else:
+        order_row = Order(
+            conversation_id=conversation.id,
+            contact_id=conversation.contact_id,
+            stops=order_dict.get("stops"),
+            delivery_landmark=order_dict.get("delivery_landmark"),
+            phones=order_dict.get("phones"),
+            payment_method=order_dict.get("payment_method"),
+            invoice_required=bool(order_dict.get("invoice_required")),
+            places_count=places,
+            delivery_fee=None,      # rep prices delivery, not the AI/customer
+            price_pending=True,
+            raw=order_dict,
+        )
+        db.session.add(order_row)
+        updated = False
+
+    conversation.order_confirmed = True
+    conversation.ai_turn_reset_at = utcnow()  # marker: last AI state change
+    _save_new_address(conversation, decision.new_address)
+    db.session.commit()
+    realtime.conversation_updated(conversation)
+    _notify_order(conversation, order_row, updated=updated)
 
 _AI_FAILURE_SUBJECT = "easyGo: فشل في خدمة الذكاء الاصطناعي"
 
@@ -153,6 +259,31 @@ def process_incoming_message(message_id: int) -> None:
             _process(message_id)
         except Exception:  # noqa: BLE001 — never lose the job silently
             log.exception("process_incoming_message failed for id=%s", message_id)
+
+
+def _ai_replies_since_human(conversation_id: int) -> int:
+    """How many AI auto-replies since a human last stepped in (or the last reset).
+
+    Counts back to the most recent agent message or `ai_turn_reset_at` (order
+    confirmation). Used as a runaway guard, NOT an escalation trigger (ticket §2).
+    """
+    conversation = db.session.get(Conversation, conversation_id)
+    reset_at = conversation.ai_turn_reset_at if conversation else None
+    rows = db.session.scalars(
+        db.select(Message)
+        .where(Message.conversation_id == conversation_id)
+        .order_by(Message.created_at.desc())
+        .limit(40)
+    ).all()
+    count = 0
+    for m in rows:
+        if m.sender_type == SenderType.AGENT:
+            break
+        if reset_at is not None and m.created_at is not None and m.created_at <= reset_at:
+            break
+        if m.sender_type == SenderType.AI:
+            count += 1
+    return count
 
 
 def _process(message_id: int) -> None:
@@ -196,6 +327,22 @@ def _process(message_id: int) -> None:
         escalation.escalate(conversation, EscalationReason.UNREADABLE_MEDIA)
         return
 
+    # Runaway guard: after too many AI replies with no human and no resolution, go
+    # quiet and flag for staff — but do NOT escalate/hand off (ticket §2: only an
+    # explicit "اكلم موظف" escalates). A human reply or an order resets the count.
+    if _ai_replies_since_human(conversation.id) >= settings.max_consecutive_replies:
+        if not conversation.needs_attention:
+            conversation.needs_attention = True
+            db.session.commit()
+            name = conversation.contact.name if conversation.contact else "عميل"
+            notify.notify_staff(
+                NotificationType.NEEDS_ATTENTION,
+                f"محادثة تجاوزت حد الردود التلقائية وتحتاج متابعة — {name}",
+                conversation_id=conversation.id,
+            )
+            realtime.conversation_updated(conversation)
+        return  # stop auto-replying this turn
+
     # Surface risky conversations to staff + remember a typed phone (bot still replies).
     _flag_attention(conversation, message)
     _save_customer_phone(conversation, message)
@@ -211,30 +358,10 @@ def _process(message_id: int) -> None:
 
     sources = _source_titles(decision.used_chunk_ids)
 
-    # Order confirmed -> send the model's reply, record the order, stay AI-active,
-    # reset the counter, and alert staff. NOT an escalation (ticket).
+    # Order confirmed (or edited) -> send the model's reply, create/update the order
+    # row, stay AI-active, and alert staff. NOT an escalation (ticket §3).
     if decision.order_confirmed and decision.reply_text:
-        outgoing.send_reply(
-            conversation, decision.reply_text, sender_type=SenderType.AI,
-            ai_confidence=decision.confidence, ai_sources=sources,
-        )
-        order = decision.order or {}
-        db.session.add(Order(
-            conversation_id=conversation.id,
-            contact_id=conversation.contact_id,
-            stops=order.get("stops"),
-            delivery_landmark=order.get("delivery_landmark"),
-            phones=order.get("phones"),
-            payment_method=order.get("payment_method"),
-            invoice_required=bool(order.get("invoice_required")),
-            raw=order,
-        ))
-        conversation.order_confirmed = True
-        conversation.ai_turn_reset_at = utcnow()  # marker: last AI state change
-        _save_new_address(conversation, decision.new_address)
-        db.session.commit()
-        realtime.conversation_updated(conversation)
-        _notify_order_confirmed(conversation, order)
+        _handle_order(conversation, decision, sources)
         return
 
     # Escalate ONLY when the customer asked for a human (ticket §2).

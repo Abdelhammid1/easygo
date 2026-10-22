@@ -58,9 +58,14 @@ _JSON_CONTRACT = (
     "أعد ردك بصيغة JSON فقط دون أي نص خارج الـ JSON، بالشكل التالي:\n"
     '{"reply": "نص الرد للعميل", "confidence": 0.0, "escalate": false, '
     '"escalation_reason": null, "order_confirmed": false, '
-    '"order": {"stops": [{"shop": "اسم المحل", "items": ["صنف"]}], '
+    '"order": {"stops": [{"shop": "اسم المحل", "category": "نوع المحل", "items": ["صنف"]}], '
     '"delivery_landmark": "مكان التسليم", "phones": ["رقم"], '
-    '"payment_method": "كاش/محفظة", "invoice_required": false}, "new_address": null}\n'
+    '"payment_method": "كاش/محفظة", "invoice_required": false, '
+    '"delivery_fee": null, "places_count": 1}, "new_address": null}\n'
+    "في كائن order: category نوع كل محل (صيدلية/مطعم/سوبر ماركت...)، و places_count عدد "
+    "المحلات، و delivery_fee رسوم التوصيل كرقم لو تعرفها وإلا اجعلها \"pending\" "
+    "(المندوب هو اللي بيحدد التوصيل). لو العميل عدّل أوردر مؤكد (زاد/شال صنف أو محل)، "
+    "أعِد order_confirmed=true ومعاه كائن order كامل محدّث (مش الفرق بس).\n"
     "اجعل escalate=true و escalation_reason=\"requested_human\" فقط إذا طلب العميل "
     "صراحةً التحدث مع موظف/إنسان. في كل الحالات الأخرى اجعل escalate=false واكتب ردًّا "
     "مفيدًا بنفسك: لو مش متأكد أو ناقصة معلومة أو مش لاقي الإجابة في قاعدة المعرفة، "

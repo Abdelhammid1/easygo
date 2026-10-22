@@ -11,7 +11,7 @@ from app.models.core import Attachment, Conversation, Message, User
 from app.models.enums import AIMode, ConversationState, SenderType, UserRole, UserStatus
 from app.models.support import InternalNote, Tag
 from app.security.permissions import Permission, require_permission
-from app.services import outgoing, realtime
+from app.services import audit, outgoing, realtime
 
 bp = Blueprint("conversations", __name__, url_prefix="/api/conversations")
 
@@ -103,6 +103,13 @@ def list_conversations():
         query = query.where(Conversation.order_confirmed.is_(True))
     if request.args.get("needs_attention") == "1":
         query = query.where(Conversation.needs_attention.is_(True))
+    if request.args.get("needs_price") == "1":
+        # Conversations whose latest active order still needs a delivery price.
+        priced = db.select(Order.conversation_id).where(
+            Order.price_pending.is_(True),
+            Order.status.notin_(("delivered", "cancelled")),
+        )
+        query = query.where(Conversation.id.in_(priced))
     query = query.order_by(Conversation.last_message_at.desc().nullslast()).limit(100)
     rows = db.session.scalars(query).all()
     return jsonify(conversations=[_conv_json(c) for c in rows])
@@ -271,8 +278,50 @@ def get_order(conversation_id: int):
         "phones": order.phones or [],
         "payment_method": order.payment_method,
         "invoice_required": order.invoice_required,
+        "delivery_fee": float(order.delivery_fee) if order.delivery_fee is not None else None,
+        "price_pending": order.price_pending,
+        "places_count": order.places_count,
+        "revision": order.revision,
+        "revisions": order.revisions or [],
         "at": order.created_at.isoformat() if order.created_at else None,
+        "updated_at": order.updated_at.isoformat() if order.updated_at else None,
     })
+
+
+@bp.post("/<int:conversation_id>/order/price")
+@login_required
+@require_permission(Permission.REPLY_CONVERSATIONS)
+def set_order_price(conversation_id: int):
+    """Staff sets the delivery fee (ticket §3/§6): pricing is rep-authoritative,
+    never model-set. Clears price_pending and audits the change."""
+    import math
+
+    order = db.session.scalar(
+        db.select(Order).where(Order.conversation_id == conversation_id)
+        .order_by(Order.created_at.desc()).limit(1)
+    )
+    if order is None:
+        return jsonify(error="not_found"), 404
+    raw = (request.get_json(silent=True) or {}).get("delivery_fee")
+    if raw is None:
+        return jsonify(error="invalid_fee"), 400
+    try:
+        fee = float(raw)
+    except (TypeError, ValueError):
+        return jsonify(error="invalid_fee"), 400
+    if not math.isfinite(fee) or fee < 0:
+        return jsonify(error="invalid_fee"), 400
+
+    old = float(order.delivery_fee) if order.delivery_fee is not None else None
+    order.delivery_fee = fee
+    order.price_pending = False
+    audit.record("order.price", entity_type="order", entity_id=order.id,
+                 before={"delivery_fee": old}, after={"delivery_fee": fee})
+    db.session.commit()
+    conv = db.session.get(Conversation, conversation_id)
+    if conv is not None:
+        realtime.conversation_updated(conv)
+    return jsonify(order={"id": order.id, "delivery_fee": fee, "price_pending": False})
 
 
 @bp.get("/<int:conversation_id>/notes")
