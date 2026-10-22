@@ -146,7 +146,20 @@ a.btn { display: inline-flex; align-items: center; justify-content: center; text
 .order-box { background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-md); padding: 12px; display: flex; flex-direction: column; gap: 8px; font-size: 13px; }
 .order-box .stop { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; }
 .order-box .stop b { font-weight: 600; }
+.order-box .stop .stop-cat { font-size: 10px; font-weight: 600; margin-inline-start: 6px; padding: 1px 6px; border-radius: var(--r-pill); background: var(--accent-weak); color: var(--accent); }
 .order-box .meta { font-size: 12px; color: var(--fg-2); }
+.order-fee { margin-top: 2px; }
+.order-fee .fee-pending { font-size: 12px; font-weight: 700; color: var(--warn); background: var(--warn-weak); padding: 3px 9px; border-radius: var(--r-pill); display: inline-block; }
+.order-fee .fee-set { font-size: 12px; font-weight: 600; color: var(--good); }
+.fee-input { display: flex; gap: 6px; margin-top: 2px; }
+.fee-input input { flex: 1; min-width: 0; padding: 6px 9px; border: 1px solid var(--border); border-radius: 7px; background: var(--surface); color: var(--fg); font-size: 12px; }
+.rev-pill { font-size: 10px; font-weight: 700; margin-inline-start: 8px; padding: 1px 7px; border-radius: var(--r-pill); background: var(--warn-weak); color: var(--warn); }
+
+/* risk / price pills + AI-off banner */
+.attn-pill { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: var(--r-pill); background: var(--warn-weak); color: var(--warn); }
+.price-pill { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: var(--r-pill); background: var(--warn-weak); color: var(--warn); }
+.citem.attn::after { content: ""; position: absolute; right: 0; top: 0; bottom: 0; width: 3px; background: var(--warn); }
+.ai-off-banner { position: sticky; top: 0; z-index: 20; display: flex; align-items: center; justify-content: center; gap: 8px; padding: 9px 16px; background: var(--danger); color: #fff; font-size: 13px; font-weight: 700; text-align: center; }
 
 /* thread */
 .thread { display: flex; flex-direction: column; min-width: 0; background: var(--bg); }

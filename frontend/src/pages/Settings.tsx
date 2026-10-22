@@ -30,6 +30,8 @@ interface AISettings {
   confidence_threshold: number;
   max_consecutive_replies: number;
   send_delay_seconds: number;
+  debounce_seconds: number;
+  debounce_max_seconds: number;
 }
 
 function AISettingsCard() {
@@ -53,6 +55,8 @@ function AISettingsCard() {
       ai_enabled: s.ai_enabled, confidence_threshold: s.confidence_threshold,
       max_consecutive_replies: s.max_consecutive_replies,
       send_delay_seconds: s.send_delay_seconds,
+      debounce_seconds: s.debounce_seconds,
+      debounce_max_seconds: s.debounce_max_seconds,
     };
     if (apiKey.trim()) body.api_key = apiKey.trim();
     try {
@@ -98,6 +102,14 @@ function AISettingsCard() {
         <div className="field"><label>تأخير الإرسال (ثوانٍ)</label>
           <input type="number" min={0} value={s.send_delay_seconds}
             onChange={(e) => setS({ ...s, send_delay_seconds: Number(e.target.value) })} dir="ltr" /></div>
+      </div>
+      <div className="row" style={{ marginTop: 12 }}>
+        <div className="field"><label>تجميع الرسائل (ثوانٍ) — 0 لتعطيله</label>
+          <input type="number" min={0} value={s.debounce_seconds}
+            onChange={(e) => setS({ ...s, debounce_seconds: Number(e.target.value) })} dir="ltr" /></div>
+        <div className="field"><label>أقصى مهلة تجميع (ثوانٍ)</label>
+          <input type="number" min={1} value={s.debounce_max_seconds}
+            onChange={(e) => setS({ ...s, debounce_max_seconds: Number(e.target.value) })} dir="ltr" /></div>
       </div>
       {error && <div className="banner err" style={{ marginTop: 12 }}>{error}</div>}
       <div className="actions" style={{ marginTop: 14 }}>
@@ -360,6 +372,7 @@ interface OrgSettings {
   retention_days: number | null;
   handoff_text: string;
   order_notify_telegram_chat_id: string | null;
+  attention_keywords: string[];
 }
 
 const DAYS: { key: string; label: string }[] = [
@@ -491,6 +504,16 @@ function OrgSettingsCard() {
         <input value={s.order_notify_telegram_chat_id ?? ""} dir="ltr"
           placeholder="-1001234567890"
           onChange={(e) => setS({ ...s, order_notify_telegram_chat_id: e.target.value })} />
+      </div>
+
+      <div className="field" style={{ marginTop: 14 }}>
+        <label>كلمات «تحتاج انتباه» (تُفصل بفاصلة) — تُنبّه الموظفين دون إيقاف البوت</label>
+        <textarea className="ta" style={{ minHeight: 48 }}
+          value={(s.attention_keywords ?? []).join("، ")}
+          onChange={(e) => setS({
+            ...s,
+            attention_keywords: e.target.value.split(/[،,\n]+/).map((k) => k.trim()).filter(Boolean),
+          })} />
       </div>
 
       {error && <div className="banner err" style={{ marginTop: 12 }}>{error}</div>}

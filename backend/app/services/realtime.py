@@ -37,6 +37,8 @@ def _conversation_payload(conversation) -> dict:
         "escalation_reason": getattr(
             conversation.escalation_reason, "value", conversation.escalation_reason
         ),
+        "order_confirmed": conversation.order_confirmed,
+        "needs_attention": conversation.needs_attention,
     }
 
 
@@ -60,3 +62,8 @@ def conversation_updated(conversation) -> None:
 def notify_user(user_id: int, payload: dict) -> None:
     """Live in-app notification to one user's personal room (spec §5.5 NT-1)."""
     _emit("notification:new", payload, room=f"user:{user_id}")
+
+
+def ai_status(ai_enabled: bool) -> None:
+    """Broadcast the global AI on/off state so every staff inbox updates live."""
+    _emit("ai:status", {"ai_enabled": ai_enabled})

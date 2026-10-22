@@ -42,6 +42,8 @@ export interface Conversation {
   reply_window_expires_at: string | null;
   reply_window_open: boolean;
   order_confirmed?: boolean;
+  needs_attention?: boolean;
+  needs_price?: boolean;
 }
 
 export type SenderType = "customer" | "agent" | "ai" | "system";
@@ -69,15 +71,27 @@ export interface Message {
   attachments: Attachment[];
 }
 
+export interface OrderStop {
+  shop?: string;
+  category?: string;
+  items?: string[];
+}
+
 export interface Order {
   id: number;
   status: string;
-  stops: { shop?: string; items?: string[] }[];
+  stops: OrderStop[];
   delivery_landmark: string | null;
   phones: string[];
   payment_method: string | null;
   invoice_required: boolean;
+  delivery_fee: number | null;
+  price_pending: boolean;
+  places_count: number | null;
+  revision: number;
+  revisions: unknown[];
   at: string | null;
+  updated_at?: string | null;
 }
 
 export interface PromptVersion {

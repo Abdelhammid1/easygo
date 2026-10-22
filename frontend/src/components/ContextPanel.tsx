@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { api } from "../api/client";
 import type { Conversation, Copilot, Note, Order, Tag } from "../api/types";
 
@@ -39,11 +39,29 @@ export function ContextPanel({
   const availableTags = allTags.filter((t) => !usedTagIds.has(t.id));
 
   const [order, setOrder] = useState<Order | null>(null);
-  useEffect(() => {
+  const [fee, setFee] = useState("");
+  const [pricing, setPricing] = useState(false);
+  const loadOrder = useCallback(() => {
     if (!conversation.order_confirmed) { setOrder(null); return; }
     void api.get<{ order: Order | null }>(`/conversations/${conversation.id}/order`)
       .then((r) => setOrder(r.order)).catch(() => setOrder(null));
   }, [conversation.id, conversation.order_confirmed]);
+  useEffect(() => { setFee(""); loadOrder(); }, [loadOrder]);
+
+  async function savePrice() {
+    const value = Number(fee);
+    if (!order || !Number.isFinite(value) || value < 0) return;
+    setPricing(true);
+    try {
+      await api.post(`/conversations/${conversation.id}/order/price`, { delivery_fee: value });
+      setFee("");
+      loadOrder();
+    } catch {
+      /* ignore — keep the input for a retry */
+    } finally {
+      setPricing(false);
+    }
+  }
 
   function submitNote() {
     const b = note.trim();
@@ -75,18 +93,41 @@ export function ContextPanel({
 
       {order && (
         <div className="ctx-sec">
-          <div className="ctx-h">🧾 الأوردر المؤكد</div>
+          <div className="ctx-h">
+            🧾 الأوردر المؤكد #{order.id}
+            {order.revision > 0 && <span className="rev-pill">معدّل ×{order.revision}</span>}
+          </div>
           <div className="order-box">
             {(order.stops ?? []).map((st, i) => (
               <div key={i} className="stop">
                 <b>{st.shop || "محل"}</b>
+                {st.category && <span className="stop-cat">{st.category}</span>}
                 <div className="meta">{(st.items ?? []).join("، ")}</div>
               </div>
             ))}
+            {(order.places_count ?? 0) > 0 && <div className="meta">عدد الأماكن: {order.places_count}</div>}
             {order.delivery_landmark && <div className="meta">التسليم: {order.delivery_landmark}</div>}
             {order.phones.length > 0 && <div className="meta" style={{ direction: "ltr" }}>{order.phones.join(" · ")}</div>}
             {order.payment_method && <div className="meta">الدفع: {order.payment_method}</div>}
             {order.invoice_required && <div className="meta">مطلوب فاتورة</div>}
+
+            <div className="order-fee">
+              {order.price_pending ? (
+                <span className="fee-pending">💰 التوصيل محتاج تسعير</span>
+              ) : (
+                <span className="fee-set">التوصيل: <b className="num">{order.delivery_fee}</b> ج</span>
+              )}
+            </div>
+            <div className="fee-input">
+              <input
+                type="number" min={0} inputMode="decimal"
+                placeholder={order.price_pending ? "حدّد رسوم التوصيل…" : "تعديل رسوم التوصيل…"}
+                value={fee} onChange={(e) => setFee(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") void savePrice(); }}
+              />
+              <button className="mini solid" disabled={pricing || fee.trim() === ""}
+                onClick={() => void savePrice()}>حفظ</button>
+            </div>
           </div>
         </div>
       )}

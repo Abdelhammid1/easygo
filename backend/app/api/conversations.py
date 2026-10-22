@@ -112,7 +112,18 @@ def list_conversations():
         query = query.where(Conversation.id.in_(priced))
     query = query.order_by(Conversation.last_message_at.desc().nullslast()).limit(100)
     rows = db.session.scalars(query).all()
-    return jsonify(conversations=[_conv_json(c) for c in rows])
+    pending_ids = set(db.session.scalars(
+        db.select(Order.conversation_id).where(
+            Order.price_pending.is_(True),
+            Order.status.notin_(("delivered", "cancelled")),
+        )
+    ).all())
+    out = []
+    for c in rows:
+        data = _conv_json(c)
+        data["needs_price"] = c.id in pending_ids
+        out.append(data)
+    return jsonify(conversations=out)
 
 
 @bp.get("/<int:conversation_id>/messages")

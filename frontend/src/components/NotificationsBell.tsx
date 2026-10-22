@@ -69,7 +69,7 @@ export function NotificationsBell() {
         return [{ ...e, is_read: false, created_at: new Date().toISOString() }, ...prev].slice(0, 100);
       });
       setUnread((u) => u + 1);
-      if (e.type === "order_confirmed") beep();
+      if (e.type === "order_confirmed" || e.type === "order_updated" || e.type === "needs_attention") beep();
     };
     socket.on("notification:new", onNew);
     return () => {
@@ -132,9 +132,15 @@ export function NotificationsBell() {
             {items.length === 0 && <div className="notif-empty">لا إشعارات</div>}
             {items.map((n) => (
               <div key={n.id}
-                className={"notif-row" + (n.is_read ? "" : " unread") + (n.type === "order_confirmed" ? " order" : "")}
+                className={"notif-row" + (n.is_read ? "" : " unread")
+                  + (n.type === "order_confirmed" || n.type === "order_updated" ? " order" : "")
+                  + (n.type === "needs_attention" ? " attn" : "")}
                 onClick={() => void markOne(n)}>
-                <div className="bd">{n.type === "order_confirmed" ? "🧾 " : ""}{n.body ?? n.type}</div>
+                <div className="bd">
+                  {n.type === "order_confirmed" ? "🧾 " : n.type === "order_updated" ? "✏️ "
+                    : n.type === "needs_attention" ? "⚠︎ " : ""}
+                  {n.body ?? n.type}
+                </div>
                 <div className="tm num">{timeLabel(n.created_at)}</div>
               </div>
             ))}

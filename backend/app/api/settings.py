@@ -12,7 +12,7 @@ from app.models.ai import AISettings, PromptVersion
 from app.models.core import Channel
 from app.models.enums import ChannelStatus, ChannelType, NotificationType
 from app.security.permissions import Permission, require_permission
-from app.services import audit, notify
+from app.services import audit, notify, realtime
 
 bp = Blueprint("settings", __name__, url_prefix="/api/settings")
 
@@ -56,6 +56,14 @@ def get_kill_switch():
     return jsonify(ai_enabled=s.ai_enabled)
 
 
+@bp.get("/ai/status")
+@login_required
+def ai_status():
+    """Read-only global AI state for ANY staff member (drives the inbox banner)."""
+    s = db.session.get(AISettings, 1)
+    return jsonify(ai_enabled=bool(s.ai_enabled) if s else True)
+
+
 @bp.post("/ai/kill-switch")
 @login_required
 @require_permission(Permission.AI_KILL_SWITCH)
@@ -69,6 +77,7 @@ def set_kill_switch():
     audit.record("ai.kill_switch", entity_type="ai_settings", entity_id=1,
                  after={"ai_enabled": enabled})
     db.session.commit()
+    realtime.ai_status(enabled)  # live banner update for every staff inbox
     return jsonify(ai_enabled=s.ai_enabled)
 
 
@@ -111,6 +120,7 @@ def update_ai_settings():
                  after={"provider": s.provider, "model": s.model,
                         "ai_enabled": s.ai_enabled})
     db.session.commit()
+    realtime.ai_status(s.ai_enabled)  # keep inbox banners in sync
     return jsonify(settings=_ai_json(s))
 
 

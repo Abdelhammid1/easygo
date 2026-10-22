@@ -10,7 +10,9 @@ const STATE_LABEL: Record<ConversationState, string> = {
 
 const FILTERS: { key: string; label: string }[] = [
   { key: "", label: "الكل" },
+  { key: "attention", label: "⚠︎ تحتاج انتباه" },
   { key: "order", label: "أوردرات مؤكدة" },
+  { key: "price", label: "محتاجة سعر" },
   { key: "needs_human", label: "تحتاج موظفًا" },
   { key: "open", label: "مفتوحة" },
   { key: "resolved", label: "محلولة" },
@@ -43,6 +45,10 @@ export function ConversationList({ conversations, selectedId, filter, search, on
   const shown = conversations.filter((c) => {
     if (filter === "order") {
       if (!c.order_confirmed) return false;
+    } else if (filter === "attention") {
+      if (!c.needs_attention) return false;
+    } else if (filter === "price") {
+      if (!c.needs_price) return false;
     } else if (filter && c.state !== filter) {
       return false;
     }
@@ -74,7 +80,7 @@ export function ConversationList({ conversations, selectedId, filter, search, on
         {shown.length === 0 && <div className="empty">لا توجد محادثات</div>}
         {shown.map((c) => (
           <div key={c.id}
-            className={"citem" + (c.id === selectedId ? " active" : "") + (c.state === "needs_human" ? " alert" : "")}
+            className={"citem" + (c.id === selectedId ? " active" : "") + (c.state === "needs_human" ? " alert" : "") + (c.needs_attention ? " attn" : "")}
             onClick={() => onSelect(c)}>
             <div className="chan-av">
               <span className="av" style={{ background: avatarColor(c.id) }}>{initial(c.contact?.name)}</span>
@@ -90,7 +96,9 @@ export function ConversationList({ conversations, selectedId, filter, search, on
               <div className="csnip">{c.last_message_preview ?? ""}</div>
               <div className="cmeta">
                 <span className={"tag " + c.state}>{STATE_LABEL[c.state]}</span>
+                {c.needs_attention && <span className="attn-pill">⚠︎ انتباه</span>}
                 {c.order_confirmed && <span className="order-pill">🧾 أوردر</span>}
+                {c.needs_price && <span className="price-pill">💰 سعر</span>}
                 {c.ai_mode === "active" && c.state !== "resolved" && (
                   <span className="ai-pill"><span className="pdot" />يرد آليًا</span>
                 )}

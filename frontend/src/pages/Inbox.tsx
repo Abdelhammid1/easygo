@@ -28,6 +28,7 @@ export function Inbox() {
   const [draft, setDraft] = useState("");
   const [assignables, setAssignables] = useState<AssignableUser[]>([]);
   const [allTags, setAllTags] = useState<Tag[]>([]);
+  const [aiEnabled, setAiEnabled] = useState(true);
 
   const selectedId = selected?.id ?? null;
   const selectedRef = useRef<number | null>(null);
@@ -60,10 +61,12 @@ export function Inbox() {
     void api.get<ListResponse>("/conversations").then((r) => setConversations(r.conversations));
     void api.get<{ users: AssignableUser[] }>("/conversations/assignable").then((r) => setAssignables(r.users));
     void api.get<{ tags: Tag[] }>("/catalog/tags").then((r) => setAllTags(r.tags)).catch(() => undefined);
+    void api.get<{ ai_enabled: boolean }>("/settings/ai/status").then((r) => setAiEnabled(r.ai_enabled)).catch(() => undefined);
 
     const socket = getSocket();
     const onInbox = (p: ConversationPatch) => upsert(p);
     const onConvUpdate = (p: ConversationPatch) => upsert(p);
+    const onAiStatus = (p: { ai_enabled: boolean }) => setAiEnabled(p.ai_enabled);
     const onMessage = (e: MessageEvent) => {
       if (e.conversation_id === selectedRef.current) {
         addMessage({
@@ -77,10 +80,12 @@ export function Inbox() {
     socket.on("inbox:update", onInbox);
     socket.on("conversation:update", onConvUpdate);
     socket.on("message:new", onMessage);
+    socket.on("ai:status", onAiStatus);
     return () => {
       socket.off("inbox:update", onInbox);
       socket.off("conversation:update", onConvUpdate);
       socket.off("message:new", onMessage);
+      socket.off("ai:status", onAiStatus);
     };
   }, [upsert, addMessage, loadCopilot]);
 
@@ -138,7 +143,13 @@ export function Inbox() {
   }
 
   return (
-    <div className={"inbox" + (selected ? " has-sel" : "")}>
+    <>
+      {!aiEnabled && (
+        <div className="ai-off-banner" role="alert">
+          ⛔ الذكاء الاصطناعي متوقف — لا يتم الرد تلقائيًا على العملاء
+        </div>
+      )}
+      <div className={"inbox" + (selected ? " has-sel" : "")}>
       <ConversationList
         conversations={conversations}
         selectedId={selectedId}
@@ -180,6 +191,7 @@ export function Inbox() {
           onInsertDraft={(t) => setDraft(t)}
         />
       )}
-    </div>
+      </div>
+    </>
   );
 }
