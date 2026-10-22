@@ -30,6 +30,8 @@ def _ai_json(s: AISettings) -> dict:
         "max_consecutive_replies": s.max_consecutive_replies,
         "daily_request_cap": s.daily_request_cap,
         "send_delay_seconds": s.send_delay_seconds,
+        "debounce_seconds": s.debounce_seconds,
+        "debounce_max_seconds": s.debounce_max_seconds,
     }
 
 
@@ -90,6 +92,10 @@ def update_ai_settings():
         s.max_consecutive_replies = int(data["max_consecutive_replies"])
     if "send_delay_seconds" in data:
         s.send_delay_seconds = int(data["send_delay_seconds"])
+    if "debounce_seconds" in data:
+        s.debounce_seconds = max(0, int(data["debounce_seconds"]))
+    if "debounce_max_seconds" in data:
+        s.debounce_max_seconds = max(1, int(data["debounce_max_seconds"]))
     if "daily_request_cap" in data:
         s.daily_request_cap = data["daily_request_cap"]
 

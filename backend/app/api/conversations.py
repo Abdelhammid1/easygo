@@ -296,12 +296,15 @@ def set_order_price(conversation_id: int):
     never model-set. Clears price_pending and audits the change."""
     import math
 
+    # Only an active (undelivered, uncancelled) order can be priced.
     order = db.session.scalar(
-        db.select(Order).where(Order.conversation_id == conversation_id)
-        .order_by(Order.created_at.desc()).limit(1)
+        db.select(Order).where(
+            Order.conversation_id == conversation_id,
+            Order.status.notin_(("delivered", "cancelled")),
+        ).order_by(Order.id.desc()).limit(1)
     )
     if order is None:
-        return jsonify(error="not_found"), 404
+        return jsonify(error="no_active_order"), 404
     raw = (request.get_json(silent=True) or {}).get("delivery_fee")
     if raw is None:
         return jsonify(error="invalid_fee"), 400

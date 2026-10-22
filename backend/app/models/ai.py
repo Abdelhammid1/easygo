@@ -60,6 +60,11 @@ class AISettings(TimestampMixin, db.Model):
     max_consecutive_replies = db.Column(db.Integer, nullable=False, default=10)
     daily_request_cap = db.Column(db.Integer, nullable=True)
     send_delay_seconds = db.Column(db.Integer, nullable=False, default=0)
+    # Debounce: after a customer message, wait this many seconds for more messages
+    # and answer them together in one reply (ticket §4). 0 disables. The window
+    # renews per message up to debounce_max_seconds.
+    debounce_seconds = db.Column(db.Integer, nullable=False, default=5)
+    debounce_max_seconds = db.Column(db.Integer, nullable=False, default=15)
     active_prompt_version_id = db.Column(
         db.Integer, db.ForeignKey("prompt_versions.id"), nullable=True
     )

@@ -7,6 +7,9 @@ from __future__ import annotations
 
 import logging
 import re
+import time
+from datetime import timedelta
+from typing import cast
 
 from app.extensions import db
 from app.models.ai import AISettings, KBChunk, KBItem, Order
@@ -15,6 +18,7 @@ from app.models.core import Conversation, Message
 from app.models.enums import (
     ConversationState,
     EscalationReason,
+    MessageDirection,
     MessageType,
     NotificationType,
     SenderType,
@@ -22,6 +26,7 @@ from app.models.enums import (
 from app.models.org import DEFAULT_ATTENTION_KEYWORDS, OrgSettings
 from app.services import automation, escalation, notify, outgoing, realtime
 from app.services.ai import service as ai_service
+from app.tasks.queue import AI_QUEUE, get_connection, get_queue
 from app.utils.arabic import contains_any
 
 
@@ -40,29 +45,29 @@ def _save_new_address(conversation: Conversation, new_address: str | None) -> No
         conversation.contact.address = new_address
 
 
-def _save_customer_phone(conversation: Conversation, message: Message) -> None:
+def _save_customer_phone(conversation: Conversation, text: str) -> None:
     """If the customer typed a phone number and we have none saved, keep it so a
     later "نفس الرقم" can reuse it (ticket §6)."""
     contact = conversation.contact
-    if contact is None or contact.phone or not message.body:
+    if contact is None or contact.phone or not text:
         return
-    m = re.search(r"(01[0125]\d{8})", message.body.replace(" ", "").replace("-", ""))
+    m = re.search(r"(01[0125]\d{8})", text.replace(" ", "").replace("-", ""))
     if m:
         contact.phone = m.group(1)
 
 
-def _flag_attention(conversation: Conversation, message: Message) -> None:
+def _flag_attention(conversation: Conversation, text: str) -> None:
     """Flag + notify on a risk keyword (complaint/cancel/late/refund...).
 
     The bot still replies normally — this only surfaces the conversation to staff
     (bell + "تحتاج انتباه" filter). No-op if already flagged (ticket §2).
     """
-    if conversation.needs_attention or not message.body:
+    if conversation.needs_attention or not text:
         return
     org = db.session.get(OrgSettings, 1)
     keywords = (org.attention_keywords if org and org.attention_keywords
                 else DEFAULT_ATTENTION_KEYWORDS)
-    hits = contains_any(message.body, keywords)
+    hits = contains_any(text, keywords)
     if not hits:
         return
     conversation.needs_attention = True
@@ -143,8 +148,9 @@ def _order_summary(conversation: Conversation, order: Order, *, updated: bool) -
 def _notify_order(conversation: Conversation, order: Order, *, updated: bool) -> None:
     name = conversation.contact.name if conversation.contact else "عميل"
     if updated:
+        extra = " (محتاج إعادة تسعير)" if order.price_pending else ""
         notify.notify_staff(
-            NotificationType.ORDER_UPDATED, f"تم تعديل الأوردر #{order.id} — {name}",
+            NotificationType.ORDER_UPDATED, f"تم تعديل الأوردر #{order.id} — {name}{extra}",
             conversation_id=conversation.id,
         )
     else:
@@ -197,10 +203,10 @@ def _handle_order(conversation: Conversation, decision, sources: list[str]) -> N
         existing.payment_method = order_dict.get("payment_method")
         existing.invoice_required = bool(order_dict.get("invoice_required"))
         existing.places_count = places
-        # Delivery pricing is REP-authoritative, never model-set (anti-injection):
-        # keep a rep-set fee across edits; otherwise it still needs pricing.
-        if existing.delivery_fee is None:
-            existing.price_pending = True
+        # Delivery pricing is REP-authoritative, never model-set (anti-injection).
+        # Any edit can change the fee (stops/items changed), so force a re-price:
+        # keep the prior fee as a hint but flag it pending until a rep re-confirms.
+        existing.price_pending = True
         existing.raw = order_dict  # model's suggested fee (if any) lives here only
         order_row = existing
         updated = True
@@ -251,14 +257,105 @@ def _get_app():
     return _app
 
 
+_DEBOUNCE_KEY = "easygo:debounce:%s"
+
+
 def process_incoming_message(message_id: int) -> None:
-    """Entrypoint executed by RQ."""
+    """RQ entrypoint: surface the message, then debounce or run the AI."""
     app = _get_app()
     with app.app_context():
         try:
-            _process(message_id)
+            _receive(message_id)
         except Exception:  # noqa: BLE001 — never lose the job silently
             log.exception("process_incoming_message failed for id=%s", message_id)
+
+
+def run_conversation_ai(conversation_id: int) -> None:
+    """RQ entrypoint for the debounced AI run (fired after the quiet window)."""
+    app = _get_app()
+    with app.app_context():
+        try:
+            get_connection().delete(_DEBOUNCE_KEY % conversation_id)
+        except Exception as exc:  # noqa: BLE001 — Redis cleanup is best-effort
+            log.warning("debounce key cleanup failed for cid=%s: %s", conversation_id, exc)
+        try:
+            _run_ai(conversation_id)
+        except Exception:  # noqa: BLE001 — never lose the job silently
+            log.exception("run_conversation_ai failed for cid=%s", conversation_id)
+
+
+def _receive(message_id: int) -> None:
+    """Surface the inbound message to agents, then schedule/run the AI (§4)."""
+    message = db.session.get(Message, message_id)
+    if message is None:
+        return
+    conversation = db.session.get(Conversation, message.conversation_id)
+    if conversation is None:
+        return
+
+    # Always surface every inbound message to connected agents immediately.
+    realtime.message_created(message)
+    realtime.conversation_updated(conversation)
+
+    settings = db.session.get(AISettings, 1)
+    if settings is None or (settings.debounce_seconds or 0) <= 0:
+        _run_ai(conversation.id)  # debounce disabled: behave exactly as before
+    else:
+        _schedule_debounced_ai(conversation.id, settings)
+
+
+def _schedule_debounced_ai(conversation_id: int, settings: AISettings) -> None:
+    """Debounce: (re)schedule one AI run per burst, renewing up to the max window."""
+    from rq.job import Job  # type: ignore[import]  # lazy; keep module import light
+
+    conn = get_connection()
+    base = max(1, int(settings.debounce_seconds or 5))
+    max_window = max(base, int(settings.debounce_max_seconds or 15))
+    key = _DEBOUNCE_KEY % conversation_id
+    now = time.time()
+    data: dict = cast(dict, conn.hgetall(key)) or {}
+    first_ts = float(data[b"first_ts"]) if data.get(b"first_ts") else now
+    prev_job = data.get(b"job_id")
+    if prev_job:
+        try:
+            Job.fetch(prev_job.decode(), connection=conn).cancel()
+        except Exception:  # noqa: BLE001 — already ran/cancelled: ignore
+            pass
+    # Renew the window per message, but never wait past first_ts + max_window.
+    delay = min(base, max(0.0, first_ts + max_window - now))
+    job = get_queue(AI_QUEUE).enqueue_in(
+        timedelta(seconds=delay), run_conversation_ai, conversation_id)
+    conn.hset(key, mapping={"first_ts": first_ts, "job_id": job.id})
+    conn.expire(key, max_window + 60)
+
+
+def _latest_inbound(conversation_id: int) -> Message | None:
+    return db.session.scalar(
+        db.select(Message).where(
+            Message.conversation_id == conversation_id,
+            Message.direction == MessageDirection.INBOUND,
+            Message.sender_type == SenderType.CUSTOMER,
+            Message.is_deleted.is_(False),
+        ).order_by(Message.created_at.desc()).limit(1)
+    )
+
+
+def _burst_text(conversation_id: int) -> str:
+    """Concatenate the trailing customer messages (since the last AI/agent turn)
+    so keyword/phone scanning covers the whole coalesced burst."""
+    rows = db.session.scalars(
+        db.select(Message)
+        .where(Message.conversation_id == conversation_id, Message.is_deleted.is_(False))
+        .order_by(Message.created_at.desc())
+        .limit(20)
+    ).all()
+    parts: list[str] = []
+    for m in rows:
+        if m.sender_type in (SenderType.AI, SenderType.AGENT, SenderType.SYSTEM):
+            break
+        if m.sender_type == SenderType.CUSTOMER and m.body:
+            parts.append(m.body)
+    return "\n".join(reversed(parts))
 
 
 def _ai_replies_since_human(conversation_id: int) -> int:
@@ -287,16 +384,30 @@ def _ai_replies_since_human(conversation_id: int) -> int:
 
 
 def _process(message_id: int) -> None:
+    """Synchronous surface + AI run for one message (debounce bypass; used by tests)."""
     message = db.session.get(Message, message_id)
     if message is None:
         return
     conversation = db.session.get(Conversation, message.conversation_id)
     if conversation is None:
         return
-
-    # Always surface the inbound message to connected agents.
     realtime.message_created(message)
     realtime.conversation_updated(conversation)
+    _run_ai(conversation.id)
+
+
+def _run_ai(conversation_id: int) -> None:
+    """Run the AI flow once for the conversation, covering any coalesced burst (§4).
+
+    Uses the latest inbound customer message as the trigger; keyword/phone scanning
+    spans the whole burst so nothing in a multi-message burst is missed.
+    """
+    conversation = db.session.get(Conversation, conversation_id)
+    if conversation is None:
+        return
+    message = _latest_inbound(conversation_id)
+    if message is None:
+        return
 
     # Blocked customers get nothing automatic (spec §5.3 CT-5).
     if conversation.contact and conversation.contact.is_blocked:
@@ -343,9 +454,10 @@ def _process(message_id: int) -> None:
             realtime.conversation_updated(conversation)
         return  # stop auto-replying this turn
 
-    # Surface risky conversations to staff + remember a typed phone (bot still replies).
-    _flag_attention(conversation, message)
-    _save_customer_phone(conversation, message)
+    # Scan the whole coalesced burst for risk keywords + a typed phone (bot still replies).
+    burst = _burst_text(conversation.id)
+    _flag_attention(conversation, burst)
+    _save_customer_phone(conversation, burst)
 
     # --- run the AI flow ---
     decision = ai_service.generate(conversation, trigger_message=message)
