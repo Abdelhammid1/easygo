@@ -49,15 +49,17 @@ class DeepSeekProvider(AIProvider):
         resp.raise_for_status()
         data = resp.json()
 
-        content = data["choices"][0]["message"]["content"]
+        choice = data["choices"][0]
+        content = choice["message"].get("content")
         usage = data.get("usage", {})
         p_tok = usage.get("prompt_tokens")
         c_tok = usage.get("completion_tokens")
         return Completion(
-            content=content,
+            content=content or "",
             prompt_tokens=p_tok,
             completion_tokens=c_tok,
             cost_usd=self._estimate_cost(p_tok, c_tok),
+            finish_reason=choice.get("finish_reason"),
         )
 
     def _estimate_cost(self, p_tok, c_tok) -> float | None:

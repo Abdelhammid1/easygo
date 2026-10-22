@@ -5,7 +5,7 @@ from flask import Blueprint, jsonify, request
 from flask_login import login_required
 
 from app.extensions import db
-from app.models.org import OrgSettings
+from app.models.org import DEFAULT_ATTENTION_KEYWORDS, OrgSettings
 from app.security.permissions import Permission, require_permission
 from app.services import audit
 
@@ -32,6 +32,7 @@ def _json(s: OrgSettings) -> dict:
         "retention_days": s.retention_days,
         "handoff_text": s.handoff_text,
         "order_notify_telegram_chat_id": s.order_notify_telegram_chat_id,
+        "attention_keywords": s.attention_keywords or DEFAULT_ATTENTION_KEYWORDS,
     }
 
 
@@ -66,6 +67,9 @@ def update_org_settings():
             setattr(s, field, int(value) if value not in (None, "") else None)
     if "business_hours" in data and isinstance(data["business_hours"], dict):
         s.business_hours = data["business_hours"]
+    if "attention_keywords" in data and isinstance(data["attention_keywords"], list):
+        s.attention_keywords = [str(k).strip() for k in data["attention_keywords"]
+                                if str(k).strip()]
 
     audit.record("org_settings.update", entity_type="org_settings", entity_id=1)
     db.session.commit()

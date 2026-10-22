@@ -6,6 +6,7 @@ process; pushes its own app context so it works regardless of fork behaviour.
 from __future__ import annotations
 
 import logging
+import re
 
 from app.extensions import db
 from app.models.ai import AISettings, KBChunk, KBItem, Order
@@ -18,8 +19,10 @@ from app.models.enums import (
     NotificationType,
     SenderType,
 )
+from app.models.org import DEFAULT_ATTENTION_KEYWORDS, OrgSettings
 from app.services import automation, escalation, notify, outgoing, realtime
 from app.services.ai import service as ai_service
+from app.utils.arabic import contains_any
 
 
 def _source_titles(chunk_ids: list[int] | None) -> list[str]:
@@ -35,6 +38,42 @@ def _source_titles(chunk_ids: list[int] | None) -> list[str]:
 def _save_new_address(conversation: Conversation, new_address: str | None) -> None:
     if new_address and conversation.contact:
         conversation.contact.address = new_address
+
+
+def _save_customer_phone(conversation: Conversation, message: Message) -> None:
+    """If the customer typed a phone number and we have none saved, keep it so a
+    later "نفس الرقم" can reuse it (ticket §6)."""
+    contact = conversation.contact
+    if contact is None or contact.phone or not message.body:
+        return
+    m = re.search(r"(01[0125]\d{8})", message.body.replace(" ", "").replace("-", ""))
+    if m:
+        contact.phone = m.group(1)
+
+
+def _flag_attention(conversation: Conversation, message: Message) -> None:
+    """Flag + notify on a risk keyword (complaint/cancel/late/refund...).
+
+    The bot still replies normally — this only surfaces the conversation to staff
+    (bell + "تحتاج انتباه" filter). No-op if already flagged (ticket §2).
+    """
+    if conversation.needs_attention or not message.body:
+        return
+    org = db.session.get(OrgSettings, 1)
+    keywords = (org.attention_keywords if org and org.attention_keywords
+                else DEFAULT_ATTENTION_KEYWORDS)
+    hits = contains_any(message.body, keywords)
+    if not hits:
+        return
+    conversation.needs_attention = True
+    db.session.commit()
+    name = conversation.contact.name if conversation.contact else "عميل"
+    notify.notify_staff(
+        NotificationType.NEEDS_ATTENTION,
+        f"محادثة تحتاج انتباه ({'، '.join(hits)}) — {name}",
+        conversation_id=conversation.id,
+    )
+    realtime.conversation_updated(conversation)
 
 
 def _order_summary(conversation: Conversation, order: dict) -> str:
@@ -116,33 +155,6 @@ def process_incoming_message(message_id: int) -> None:
             log.exception("process_incoming_message failed for id=%s", message_id)
 
 
-def _ai_replies_since_human(conversation_id: int) -> int:
-    """How many AI auto-replies have been sent since a human last stepped in.
-
-    Counts AI messages back to the most recent agent message (customer messages
-    do NOT reset the count), so a long AI-only back-and-forth eventually hands
-    off to a person even though each turn is prompted by the customer (§6.3).
-    """
-    conversation = db.session.get(Conversation, conversation_id)
-    reset_at = conversation.ai_turn_reset_at if conversation else None
-    rows = db.session.scalars(
-        db.select(Message)
-        .where(Message.conversation_id == conversation_id)
-        .order_by(Message.created_at.desc())
-        .limit(40)
-    ).all()
-    count = 0
-    for m in rows:
-        if m.sender_type == SenderType.AGENT:
-            break
-        # A reset point (agent reply / order confirmation) also stops the count.
-        if reset_at is not None and m.created_at is not None and m.created_at <= reset_at:
-            break
-        if m.sender_type == SenderType.AI:
-            count += 1
-    return count
-
-
 def _process(message_id: int) -> None:
     message = db.session.get(Message, message_id)
     if message is None:
@@ -184,13 +196,19 @@ def _process(message_id: int) -> None:
         escalation.escalate(conversation, EscalationReason.UNREADABLE_MEDIA)
         return
 
-    # Too many AI replies without a human resolving it -> hand to a human.
-    if _ai_replies_since_human(conversation.id) >= settings.max_consecutive_replies:
-        escalation.escalate(conversation, EscalationReason.REPEATED_FAILURE)
-        return
+    # Surface risky conversations to staff + remember a typed phone (bot still replies).
+    _flag_attention(conversation, message)
+    _save_customer_phone(conversation, message)
 
     # --- run the AI flow ---
     decision = ai_service.generate(conversation, trigger_message=message)
+
+    # Provider outage (blank/error after retries): send the customer NOTHING
+    # misleading; record ai_error (already logged) + alert staff (ticket §1).
+    if decision.ai_error:
+        _alert_ai_failure("ردّ فارغ من مزوّد الذكاء الاصطناعي بعد عدة محاولات")
+        return
+
     sources = _source_titles(decision.used_chunk_ids)
 
     # Order confirmed -> send the model's reply, record the order, stay AI-active,
@@ -212,20 +230,22 @@ def _process(message_id: int) -> None:
             raw=order,
         ))
         conversation.order_confirmed = True
-        conversation.ai_turn_reset_at = utcnow()  # reset escalation counter
+        conversation.ai_turn_reset_at = utcnow()  # marker: last AI state change
         _save_new_address(conversation, decision.new_address)
         db.session.commit()
         realtime.conversation_updated(conversation)
         _notify_order_confirmed(conversation, order)
         return
 
-    if decision.escalate or not decision.reply_text:
+    # Escalate ONLY when the customer asked for a human (ticket §2).
+    if decision.escalate:
         escalation.escalate(
-            conversation, decision.reason or EscalationReason.LOW_CONFIDENCE
+            conversation, decision.reason or EscalationReason.REQUESTED_HUMAN
         )
-        if decision.reason == EscalationReason.AI_ERROR:
-            _alert_ai_failure("خطأ تقني في خدمة الذكاء الاصطناعي")
         return
+
+    if not decision.reply_text:
+        return  # nothing to send (generate() normally supplies a clarify fallback)
 
     _save_new_address(conversation, decision.new_address)  # committed by send_reply
     outgoing.send_reply(

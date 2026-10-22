@@ -153,6 +153,9 @@ class Conversation(TimestampMixin, db.Model):
 
     # Order flow: set True when the AI confirms an order (AI stays active, no escalation).
     order_confirmed = db.Column(db.Boolean, nullable=False, default=False)
+    # Risk flag: a keyword (complaint/cancel/late/refund...) was seen. The bot keeps
+    # replying, but staff get a "needs attention" notice + filter (ticket §2).
+    needs_attention = db.Column(db.Boolean, nullable=False, default=False)
     # Escalation counter counts AI replies created after this point (reset on agent
     # reply or order confirmation).
     ai_turn_reset_at = db.Column(db.DateTime(timezone=True), nullable=True)

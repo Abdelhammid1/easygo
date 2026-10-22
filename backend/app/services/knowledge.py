@@ -11,20 +11,19 @@ import re
 
 from app.extensions import db
 from app.models.ai import KBChunk, KBItem
+from app.utils.arabic import tokens as _tokens
 
 log = logging.getLogger(__name__)
-
-_TOKEN_RE = re.compile(r"[\w؀-ۿ]+")  # latin + arabic word chars
 
 CHUNK_SIZE = 600  # characters per chunk (approx; splits on blank lines first)
 
 
-def _tokens(text: str) -> set[str]:
-    return {t for t in _TOKEN_RE.findall(text.lower()) if len(t) > 1}
+def retrieve_scored(query: str, limit: int = 5) -> list[tuple[KBChunk, int]]:
+    """Return (chunk, overlap_score) pairs, most relevant first.
 
-
-def retrieve(query: str, limit: int = 5) -> list[KBChunk]:
-    """Return the most relevant active KB chunks for a query."""
+    Matching is done on Arabic-normalized tokens (tashkeel/alef/ya/ta-marbuta and
+    digit variants folded), so "صيدليه" matches "صيدلية" and "٢" matches "2".
+    """
     if not query:
         return []
     q_tokens = _tokens(query)
@@ -44,7 +43,12 @@ def retrieve(query: str, limit: int = 5) -> list[KBChunk]:
             scored.append((overlap, chunk))
 
     scored.sort(key=lambda pair: pair[0], reverse=True)
-    return [chunk for _score, chunk in scored[:limit]]
+    return [(chunk, score) for score, chunk in scored[:limit]]
+
+
+def retrieve(query: str, limit: int = 5) -> list[KBChunk]:
+    """Return the most relevant active KB chunks for a query."""
+    return [chunk for chunk, _score in retrieve_scored(query, limit)]
 
 
 # --------------------------- indexing ---------------------------

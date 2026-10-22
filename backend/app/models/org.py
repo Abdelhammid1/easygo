@@ -43,3 +43,14 @@ class OrgSettings(TimestampMixin, db.Model):
 
     # Optional: Telegram chat id of a staff group to post confirmed-order summaries to.
     order_notify_telegram_chat_id = db.Column(db.String(64), nullable=True)
+
+    # Keywords that flag a conversation as "needs attention" (ticket §2). JSON list
+    # of Arabic words; null falls back to DEFAULT_ATTENTION_KEYWORDS. Matched on
+    # normalized text, so spelling/diacritic variants still hit.
+    attention_keywords = db.Column(db.JSON, nullable=True)
+
+
+DEFAULT_ATTENTION_KEYWORDS = [
+    "إلغاء", "الغاء", "شكوى", "ضاع", "اتكسر", "اتأخر", "تأخر",
+    "استرجاع", "فلوسي", "نصب", "مرجع", "استرداد",
+]

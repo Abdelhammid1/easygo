@@ -17,6 +17,7 @@ class Completion:
     prompt_tokens: int | None = None
     completion_tokens: int | None = None
     cost_usd: float | None = None
+    finish_reason: str | None = None
 
 
 class AIProvider(ABC):

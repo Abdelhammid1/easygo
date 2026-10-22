@@ -120,6 +120,12 @@ class AIRun(TimestampMixin, db.Model):
     cost_usd = db.Column(db.Numeric(10, 5), nullable=True)
     rating = db.Column(db.Boolean, nullable=True)  # reviewer feedback: good/bad
 
+    # Raw model output + metadata for debugging provider quirks (ticket §1), e.g.
+    # blank json_object responses. finish_reason/model help spot bad models.
+    raw_output = db.Column(db.Text, nullable=True)
+    finish_reason = db.Column(db.String(40), nullable=True)
+    model = db.Column(db.String(80), nullable=True)
+
 
 class Order(TimestampMixin, db.Model):
     """A delivery order the AI confirmed in a conversation (ticket: order flow)."""

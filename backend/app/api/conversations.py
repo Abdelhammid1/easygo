@@ -33,6 +33,7 @@ def _conv_json(c: Conversation) -> dict:
         "reply_window_expires_at": expires.isoformat() if expires else None,
         "reply_window_open": outgoing.reply_window_open(c),
         "order_confirmed": c.order_confirmed,
+        "needs_attention": c.needs_attention,
     }
 
 
@@ -100,6 +101,8 @@ def list_conversations():
         query = query.where(Conversation.assignee_id == current_user.id)
     if request.args.get("order_confirmed") == "1":
         query = query.where(Conversation.order_confirmed.is_(True))
+    if request.args.get("needs_attention") == "1":
+        query = query.where(Conversation.needs_attention.is_(True))
     query = query.order_by(Conversation.last_message_at.desc().nullslast()).limit(100)
     rows = db.session.scalars(query).all()
     return jsonify(conversations=[_conv_json(c) for c in rows])

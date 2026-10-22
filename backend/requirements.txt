@@ -39,3 +39,6 @@ pywebpush==2.0.1
 # Config / server
 python-dotenv==1.0.1
 gunicorn==23.0.0
+
+# Tests
+pytest==8.3.4

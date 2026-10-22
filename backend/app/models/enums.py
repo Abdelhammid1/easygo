@@ -94,3 +94,4 @@ class NotificationType(str, enum.Enum):
     CHANNEL_DOWN = "channel_down"
     AI_FAILURE = "ai_failure"
     ORDER_CONFIRMED = "order_confirmed"
+    NEEDS_ATTENTION = "needs_attention"
