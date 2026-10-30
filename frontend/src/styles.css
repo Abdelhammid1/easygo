@@ -435,11 +435,23 @@ a.link { color: var(--accent); }
 .lp-foot img { width: 120px; }
 .lp-foot a { color: var(--lp-yellow); font-weight: 700; text-decoration: underline; }
 
-.lp-call-float { position: fixed; bottom: 18px; left: 18px; width: 56px; height: 56px; border-radius: 50%; background: var(--lp-yellow); display: grid; place-items: center; font-size: 28px; box-shadow: 0 8px 20px rgba(0,0,0,.25); z-index: 30; }
 
-.lp-social { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; margin-top: 28px; }
-.lp-social a { background: var(--lp-purple-dark); color: #fff; border-radius: 999px; padding: 9px 22px; font-weight: 700; font-size: 15px; transition: transform .15s; }
-.lp-social a:hover { transform: translateY(-2px); background: var(--lp-purple); }
+
+/* floating contact button (speed dial) */
+.lp-fab { position: fixed; bottom: 18px; left: 18px; z-index: 30; display: flex; flex-direction: column; align-items: flex-start; gap: 12px; }
+.lp-fab-main { width: 60px; height: 60px; border-radius: 50%; border: 0; cursor: pointer; background: var(--lp-yellow); color: var(--lp-purple-dark); font-size: 26px; line-height: 1; display: grid; place-items: center; box-shadow: 0 8px 20px rgba(0,0,0,.28), 0 4px 0 #c9b100; transition: transform .15s; font-family: inherit; }
+.lp-fab-main:hover { transform: scale(1.06); }
+.lp-fab-main:focus-visible, .lp-fab-item:focus-visible { outline: 3px solid var(--lp-purple); outline-offset: 3px; }
+.lp-fab-menu { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.lp-fab-menu[hidden] { display: none; }
+.lp-fab-menu li { animation: lp-pop .22s ease both; }
+.lp-fab-item { display: flex; align-items: center; gap: 10px; background: #fff; color: var(--lp-ink) !important; border-radius: 999px; padding: 8px 18px 8px 10px; font-weight: 700; font-size: 15px; box-shadow: 0 6px 18px rgba(0,0,0,.22); white-space: nowrap; }
+.lp-fab-ico { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; font-size: 17px; color: #fff; }
+.lp-fab-call .lp-fab-ico { background: var(--lp-purple); }
+.lp-fab-tg .lp-fab-ico { background: #229ed9; }
+.lp-fab-ig .lp-fab-ico { background: linear-gradient(45deg, #f9ce34, #ee2a7b 55%, #6228d7); }
+.lp-fab-fb .lp-fab-ico { background: #1877f2; }
+@keyframes lp-pop { from { opacity: 0; transform: translateY(10px) scale(.96); } }
 
 @media (max-width: 900px) {
   .lp-links { display: none; }

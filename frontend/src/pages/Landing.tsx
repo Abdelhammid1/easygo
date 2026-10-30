@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
 
 const PHONE_DISPLAY = "01069982183";
 const TEL = "tel:+201069982183";
@@ -57,6 +57,65 @@ const FAQ = [
 
 function Phone() {
   return <bdi dir="ltr">{PHONE_DISPLAY}</bdi>;
+}
+
+const CHANNELS = [
+  { key: "call", icon: "📞", label: "اتصل بينا", href: TEL, external: false },
+  { key: "tg", icon: "✈️", label: "تليجرام", href: TELEGRAM, external: true },
+  { key: "ig", icon: "📷", label: "إنستجرام", href: INSTAGRAM, external: true },
+  { key: "fb", icon: "👍", label: "فيسبوك", href: FACEBOOK, external: true },
+];
+
+function ContactFab() {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent | TouchEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("touchstart", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("touchstart", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  return (
+    <div className={"lp-fab" + (open ? " is-open" : "")} ref={ref}>
+      <ul className="lp-fab-menu" id="lp-fab-menu" hidden={!open}>
+        {CHANNELS.map((c, i) => (
+          <li key={c.key} style={{ animationDelay: `${i * 40}ms` }}>
+            <a
+              className={"lp-fab-item lp-fab-" + c.key}
+              href={c.href}
+              {...(c.external ? { target: "_blank", rel: "noopener noreferrer" } : {})}
+            >
+              <span className="lp-fab-ico" aria-hidden="true">{c.icon}</span>
+              <span>{c.label}</span>
+            </a>
+          </li>
+        ))}
+      </ul>
+      <button
+        type="button"
+        className="lp-fab-main"
+        aria-expanded={open}
+        aria-controls="lp-fab-menu"
+        aria-label={open ? "إغلاق قائمة التواصل" : "تواصل معنا"}
+        onClick={() => setOpen((v) => !v)}
+      >
+        <span aria-hidden="true">{open ? "✕" : "💬"}</span>
+      </button>
+    </div>
+  );
 }
 
 export function Landing() {
@@ -227,11 +286,6 @@ export function Landing() {
             <a className="lp-btn lp-btn-yellow lp-btn-lg" href={TEL}>
               📞 اتصل دلوقتي · <Phone />
             </a>
-            <div className="lp-social" aria-label="تابعنا">
-              <a href={TELEGRAM} target="_blank" rel="noopener noreferrer">تليجرام</a>
-              <a href={INSTAGRAM} target="_blank" rel="noopener noreferrer">إنستجرام</a>
-              <a href={FACEBOOK} target="_blank" rel="noopener noreferrer">فيسبوك</a>
-            </div>
           </div>
         </section>
       </main>
@@ -247,9 +301,7 @@ export function Landing() {
         </div>
       </footer>
 
-      <a className="lp-call-float" href={TEL} aria-label="اتصل بإيزي جو">
-        📞
-      </a>
+      <ContactFab />
     </div>
   );
 }
