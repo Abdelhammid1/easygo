@@ -435,7 +435,11 @@ a.link { color: var(--accent); }
 .lp-foot img { width: 120px; }
 .lp-foot a { color: var(--lp-yellow); font-weight: 700; text-decoration: underline; }
 
-.lp-wa-float { position: fixed; bottom: 18px; left: 18px; width: 56px; height: 56px; border-radius: 50%; background: #25d366; display: grid; place-items: center; font-size: 28px; box-shadow: 0 8px 20px rgba(0,0,0,.25); z-index: 30; }
+.lp-call-float { position: fixed; bottom: 18px; left: 18px; width: 56px; height: 56px; border-radius: 50%; background: var(--lp-yellow); display: grid; place-items: center; font-size: 28px; box-shadow: 0 8px 20px rgba(0,0,0,.25); z-index: 30; }
+
+.lp-social { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; margin-top: 28px; }
+.lp-social a { background: var(--lp-purple-dark); color: #fff; border-radius: 999px; padding: 9px 22px; font-weight: 700; font-size: 15px; transition: transform .15s; }
+.lp-social a:hover { transform: translateY(-2px); background: var(--lp-purple); }
 
 @media (max-width: 900px) {
   .lp-links { display: none; }

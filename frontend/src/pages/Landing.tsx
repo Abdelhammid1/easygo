@@ -1,10 +1,10 @@
 import { useEffect } from "react";
 
-const WA_NUMBER = "201069982183";
-const waLink = (text: string) =>
-  `https://wa.me/${WA_NUMBER}?text=${encodeURIComponent(text)}`;
-const WA_ORDER = waLink("أهلاً إيزي جو، عايز أطلب توصيل 🛵");
-const WA_BIZ = waLink("أهلاً إيزي جو، أنا شركة/محل وعايز أتعاقد على توصيل طلباتنا");
+const PHONE_DISPLAY = "01069982183";
+const TEL = "tel:+201069982183";
+const TELEGRAM = "https://t.me/easygo_quweisna_bot";
+const INSTAGRAM = "https://www.instagram.com/easygo1_/";
+const FACEBOOK = "https://www.facebook.com/EasyGoDeliveryService";
 const CREDIT_URL =
   "https://manasety.ai/?utm_source=easygo&utm_medium=footer&utm_campaign=powered_by";
 
@@ -18,7 +18,7 @@ const WHAT = [
 ];
 
 const STEPS = [
-  { n: "1", title: "كلمنا واتساب", text: "قولنا عايز إيه ومن فين ولفين. من غير تطبيقات ولا تسجيل." },
+  { n: "1", title: "كلمنا", text: "اتصل بينا أو ابعتلنا على تليجرام، وقولنا عايز إيه ومن فين ولفين." },
   { n: "2", title: "المندوب يتحرك", text: "بنستلم الطلب من المكان اللي تحدده ونتابعه معاك." },
   { n: "3", title: "يوصلك لحد الباب", text: "بتستلم طلبك وإنت مرتاح، وإحنا بنحاسب على التوصيل بس." },
 ];
@@ -26,7 +26,7 @@ const STEPS = [
 const WHY = [
   { icon: "🧭", title: "بنعرف بلدنا", text: "عارفين شوارع قويسنا وقراها وكل الطرق المختصرة." },
   { icon: "🎯", title: "توصيل أي حاجة", text: "مش مرتبطين بمطعم أو محل معين. إنت اللي بتختار." },
-  { icon: "💬", title: "سهل زي رسالة", text: "طلبك كله على واتساب، ومحدش هيعقّدها عليك." },
+  { icon: "📞", title: "سهل زي مكالمة", text: "مكالمة واحدة أو رسالة، ومحدش هيعقّدها عليك." },
   { icon: "🪙", title: "بنحاسب على التوصيل بس", text: "مش بنزوّد على أسعار المحلات." },
 ];
 
@@ -35,15 +35,15 @@ const AREAS = ["قويسنا", "كل قرى قويسنا", "بنها", "شبين
 const FAQ = [
   {
     q: "بتوصّلوا لفين؟",
-    a: "قويسنا وكل قراها، وكمان بنها وشبين الكوم. لو مكانك برا الأماكن دي ابعتلنا واحنا نقولك.",
+    a: "قويسنا وكل قراها، وكمان بنها وشبين الكوم. لو مكانك برا الأماكن دي كلمنا واحنا نقولك.",
   },
   {
     q: "أطلب إزاي؟",
-    a: "رسالة واتساب واحدة على 01069982183 فيها إنت عايز إيه ومن فين ولفين، وإحنا نكمل معاك.",
+    a: "اتصل بينا على 01069982183 أو ابعتلنا على تليجرام، وقولنا إنت عايز إيه ومن فين ولفين، وإحنا نكمل معاك.",
   },
   {
     q: "هدفع كام؟",
-    a: "إحنا بنحاسب على التوصيل بس. ابعتلنا طلبك على واتساب وهنعرّفك بالتفاصيل.",
+    a: "إحنا بنحاسب على التوصيل بس. كلمنا وهنعرّفك بالتفاصيل.",
   },
   {
     q: "ينفع توصّلوا من أي محل أو مطعم؟",
@@ -51,9 +51,13 @@ const FAQ = [
   },
   {
     q: "أنا شركة أو محل، ينفع نتعاقد معاكم؟",
-    a: "طبعًا. كلمنا على واتساب ونظبط لكم طريقة تناسب شغلكم.",
+    a: "طبعًا. اتصل بينا ونظبط لكم طريقة تناسب شغلكم.",
   },
 ];
+
+function Phone() {
+  return <bdi dir="ltr">{PHONE_DISPLAY}</bdi>;
+}
 
 export function Landing() {
   useEffect(() => {
@@ -79,8 +83,8 @@ export function Landing() {
             <a href="#faq">أسئلة</a>
           </nav>
           <div className="lp-nav-cta">
-            <a className="lp-btn lp-btn-yellow lp-btn-sm" href={WA_ORDER} target="_blank" rel="noopener noreferrer">
-              اطلب واتساب
+            <a className="lp-btn lp-btn-yellow lp-btn-sm" href={TEL}>
+              📞 اتصل دلوقتي
             </a>
             <a className="lp-login" href="/login">دخول</a>
           </div>
@@ -101,10 +105,12 @@ export function Landing() {
                 قول لنا عايز إيه وإحنا نجيبه. أكل، دوا، أوراق، هدية.. إحنا موجودين وعارفين الطريق.
               </p>
               <div className="lp-hero-btns">
-                <a className="lp-btn lp-btn-yellow" href={WA_ORDER} target="_blank" rel="noopener noreferrer">
-                  اطلب دلوقتي على واتساب
+                <a className="lp-btn lp-btn-yellow" href={TEL}>
+                  📞 اتصل واطلب · <Phone />
                 </a>
-                <a className="lp-btn lp-btn-ghost" href="#how">إزاي بنشتغل؟</a>
+                <a className="lp-btn lp-btn-ghost" href={TELEGRAM} target="_blank" rel="noopener noreferrer">
+                  ابعتلنا على تليجرام
+                </a>
               </div>
             </div>
             <div className="lp-hero-art" aria-hidden="true">
@@ -160,14 +166,14 @@ export function Landing() {
               <div className="lp-card lp-card-big">
                 <div className="lp-ico">🙋</div>
                 <h3>للأفراد</h3>
-                <p>محتاج حاجة دلوقتي ومش قادر تتحرك؟ رسالة واحدة وإحنا نتصرف.</p>
-                <a className="lp-btn lp-btn-purple" href={WA_ORDER} target="_blank" rel="noopener noreferrer">اطلب كفرد</a>
+                <p>محتاج حاجة دلوقتي ومش قادر تتحرك؟ مكالمة واحدة وإحنا نتصرف.</p>
+                <a className="lp-btn lp-btn-purple" href={TEL}>اطلب كفرد</a>
               </div>
               <div className="lp-card lp-card-big">
                 <div className="lp-ico">🏪</div>
                 <h3>للشركات والمحلات</h3>
                 <p>عندك طلبات بتتوصّل كل يوم؟ سيب التوصيل علينا وركّز في شغلك.</p>
-                <a className="lp-btn lp-btn-purple" href={WA_BIZ} target="_blank" rel="noopener noreferrer">كلمنا كشركة</a>
+                <a className="lp-btn lp-btn-purple" href={TEL}>كلمنا كشركة</a>
               </div>
             </div>
           </div>
@@ -216,11 +222,16 @@ export function Landing() {
 
         <section className="lp-cta">
           <div className="lp-wrap lp-center">
-            <h2>جاهز؟ ابعتلنا رسالة بس</h2>
-            <p>إحنا هنا ورا الواتساب.</p>
-            <a className="lp-btn lp-btn-yellow lp-btn-lg" href={WA_ORDER} target="_blank" rel="noopener noreferrer">
-              كلمنا على واتساب · 01069982183
+            <h2>جاهز؟ كلمنا بس</h2>
+            <p>إحنا مستنيين مكالمتك.</p>
+            <a className="lp-btn lp-btn-yellow lp-btn-lg" href={TEL}>
+              📞 اتصل دلوقتي · <Phone />
             </a>
+            <div className="lp-social" aria-label="تابعنا">
+              <a href={TELEGRAM} target="_blank" rel="noopener noreferrer">تليجرام</a>
+              <a href={INSTAGRAM} target="_blank" rel="noopener noreferrer">إنستجرام</a>
+              <a href={FACEBOOK} target="_blank" rel="noopener noreferrer">فيسبوك</a>
+            </div>
           </div>
         </section>
       </main>
@@ -236,8 +247,8 @@ export function Landing() {
         </div>
       </footer>
 
-      <a className="lp-wa-float" href={WA_ORDER} target="_blank" rel="noopener noreferrer" aria-label="واتساب">
-        💬
+      <a className="lp-call-float" href={TEL} aria-label="اتصل بإيزي جو">
+        📞
       </a>
     </div>
   );
